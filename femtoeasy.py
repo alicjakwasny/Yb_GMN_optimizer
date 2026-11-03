@@ -62,6 +62,7 @@ class frog:
                 return retrieve_response.json()
 
     async def get_frog_data(self):
-        acquisition_data = self.get_acquisition_data()
-        retrieve_data = self.get_retrieve_data()
+        acquisition_data, retrieve_data = await asyncio.gather(
+            self.get_acquisition_data(), self.get_retrieve_data()
+        )
         return acquisition_data, retrieve_data
