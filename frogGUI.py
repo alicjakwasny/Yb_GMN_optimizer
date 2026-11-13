@@ -1,4 +1,4 @@
-import threading, time
+import threading, time, asyncio
 from BaseGUI import BaseGUI
 import numpy as np
 import tkinter as tk
@@ -16,7 +16,7 @@ class frogGUI(BaseGUI):
         self.frog_ax.set_title("FROG spectrum")
         self.frog_ax.set_xlabel("Wavelength (nm)")
         self.frog_ax.set_ylabel("Intensity")
-        self.frog_line = self.frog_ax.plot([], [], color="darkviolet")
+        self.frog_line, = self.frog_ax.plot([], [], color="darkviolet")
         self.frog_ax.grid(True, color="darkviolet", alpha=0.3)
 
         self.frog_ax2 = self.frog_ax.twinx()
@@ -26,7 +26,7 @@ class frogGUI(BaseGUI):
         self.treshold_line = self.frog_ax2.axhline(
             y=np.nan, linestyle="--", color="red", alpha=0.8
         )
-        self.treshold_text = self.frog_ax2_text(
+        self.treshold_text = self.frog_ax2.text(
             0.95, 0, "15dB: ",
             color="red",
             ha="right", va="bottom",
@@ -43,7 +43,7 @@ class frogGUI(BaseGUI):
         self.best_frog_ax = self.best_frog_figure.add_subplot(111)
         self.best_frog_ax.set_title("Frog")
         self.best_frog_ax.set_xlabel("Wavelength (nm)")
-        self.bedt_frog_ax.set_ylabel(r"Intensity")
+        self.best_frog_ax.set_ylabel(r"Intensity")
         self.best_frog_line, = self.best_frog_ax.plot([], [], color="darkviolet")
         self.best_frog_ax.grid(True, color="darkviolet", alpha=0.3)
 
@@ -75,23 +75,135 @@ class frogGUI(BaseGUI):
         self.frog_scale_lin.grid(row=2, column=0)
 
         self.scale_log = tk.BooleanVar(value=True)
+        #self.frog_scale_log = ttk.Checkbutton(read_frame, text="Logarythmic scale", variable=self.scale_log)
+        #self.frog_scale_log.grid(row=2, column=1)
+
+        ttk.Label(read_frame, text="Measurement frequency [Hz]:").grid(row=4, column=0, sticky='w')
+        self.continuous_freq_entry = ttk.Entry(read_frame, width=10)
+        self.continuous_freq_entry.insert(0, 10)
+        self.continuous_freq_entry.grid(row=4, column=1)
+
+        self.frog_continuous_button = ttk.Button(read_frame, text="Measure continuously",
+                                                  command=self.start_continuous_read)
+        self.frog_continuous_button.grid(row=5, column=0, pady=5)
+
+        self.read_button = ttk.Button(read_frame, text="Read one measurement", command=self.read_frog)
+        self.read_button.grid(row=5, column=1, pady=5)
 
 
     def connect_to_feedback(self):
+        '''
         self.frog_dev = frog
         self.frog_dev.start_frog_runners()
         self.frog_dev.start_acquisition()
+        '''
+        # 1. Tworzymy instancję klasy frog podłączającą się do naszego serwera mocka (port 8000)
+        self.frog_dev = frog(url="http://localhost:8000/")
 
-    def read_frog(self):
+        # 2. Uruchamiamy asynchroniczne uruchomienie serwera w pętli zdarzeń asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        loop.run_until_complete(self._async_connect())
+
+    async def _async_connect(self):
+        await self.frog_dev.start_frog_runners()
+        await self.frog_dev.start_acquisition()
+
+    def read_frog(self, update_plot=True):
+        '''
         acquired_data, retrieved_data = self.frog_dev.get_frog_data()
         return acquired_data, retrieved_data
+        '''
+        # Pobieranie danych w sposób synchroniczny dla interfejsu Tkinter
+        loop = asyncio.get_event_loop()
+        acquired_data, retrieved_data = loop.run_until_complete(
+            self.frog_dev.get_frog_data()
+        )
+
+        '''
+        # --- TYMCAZASOWY TEST ---
+        print("ACQUIRED:", type(acquired_data),
+              acquired_data.keys() if isinstance(acquired_data, dict) else acquired_data)
+        print("RETRIEVED:", type(retrieved_data),
+              retrieved_data.keys() if isinstance(retrieved_data, dict) else retrieved_data)
+        if isinstance(retrieved_data, dict) and "dataSeries" in retrieved_data:
+            print("RETRIEVED dataSeries keys:", retrieved_data["dataSeries"].keys())
+        return acquired_data, retrieved_data
+        # ------------------------
+        '''
+
+        # Wyciągamy punkty widma do zmiennych używanych przez wykres GUI
+        if retrieved_data and "dataSeries" in retrieved_data:
+            spectrum = retrieved_data["dataSeries"].get("retrievedSpectrum", {})
+            self.frog_xdata = spectrum.get("xValues", [])
+            self.frog_ydata = spectrum.get("yValues", [])
+
+            # Faza spektralna
+            self.frog_phase_ydata = phase.get("yValues", [])
+
+            # --- DO DIAGNOSTYKI ---
+            if len(self.frog_xdata) > 0:
+                x_min = np.min(self.frog_xdata)
+                x_max = np.max(self.frog_xdata)
+                print(f"[DIAGNOSTYKA FROG] Długość tablicy: {len(self.frog_xdata)}")
+                print(f"[DIAGNOSTYKA FROG] Wartości x: min={x_min:.4e}, max={x_max:.4e}")
+                print(f"[DIAGNOSTYKA FROG] Pierwsze 3 próbki: {self.frog_xdata[:3]}")
+            else:
+                print("[DIAGNOSTYKA FROG] Tablica self.frog_xdata jest PUSTA!")
+            # ----------------------------------------
+
+        if update_plot:
+            self.show_feedback_plot()
+
+        return acquired_data, retrieved_data
+
+    def frog_read_measurement(self, feedback_device):
+        loop = asyncio.get_event_loop()
+        acquired_data, retrieved_data = loop.run_until_complete(
+            self.feedback_device.get_frog_data()
+        )
+
+        if retrieved_data and "dataSeries" in acquired_data:
+            spectrum = retrieved_data["dataSeries"].get("retrievedSpectrum", {})
+            phase = retrieved_data["dataSeries"].get("SpectralPhase", {})
+            x = spectrum.get("xValues", [])
+            y = spectrum.get("yValues", [])
+            phase_y = phase.get("yValues", [])
+
+        return x, y, phase_y
+
+    def read_frog_background(self):
+        '''działa w WĄTKU, nie blokuje Tkintera'''
+        while self.feedback_continuous:
+            delay = 1 / float(self.continuous_freq_entry.get())
+            x, y = self.frog_read_measurement(self.feedback_device)
+
+            self.root.after(0, self.update_feedback_plot, x, y)
+            time.sleep(delay)
 
     def update_feedback_plot(self, x, y):
         self.frog_xdata = x
-        self.frog_ydata = self.show_feedback_plot()
+        self.frog_ydata = y
+        self.show_feedback_plot()
 
     def start_continuous_read(self):
-        #todo: fill in the function
+        '''wywołane przy kliknięciu checkbutton'''
+        if not self.feedback_continuous:
+            self.feedback_continuous = True
+            self.frog_continuous_button.configure(style='Green.TButton')
+            self.talk("Starting continuous FROG measurements")
+            # uruchom nowy wątek
+            t = threading.Thread(target=self.read_frog_background, daemon=True)
+            t.start()
+        else:
+            # po odznaczeniu - po prostu pętla się przerwie
+            self.feedback_continuous = False
+            self.frog_continuous_button.configure(style="Black.TButton")
+            self.talk("Stopped continuous Qmini measurement")
         pass
 
     def show_feedback_plot(self):
@@ -112,7 +224,7 @@ class frogGUI(BaseGUI):
 
         if self.scale_log.get():
             self.frog_line2.set_xdata(self.frog_xdata)
-            lin = np.array(self.frog_ydata, dtype.float)
+            lin = np.array(self.frog_ydata, dtype=float)
             lin[lin <= 0] = 1e-20
             self.frog_ydata_log = 10 * np.log10(lin/1000)
             self.frog_line2.set_ydata(self.frog_ydata_log)
@@ -127,7 +239,7 @@ class frogGUI(BaseGUI):
             treshold_value = max(self.frog_ydata_log) - 9
             self.treshold_line.set_ydata([treshold_value, treshold_value])
             # aktualizacja napisu
-            wavelengths = np.array(self.frog_data, dtype=float)
+            wavelengths = np.array(self.frog_xdata, dtype=float)
             intensities = np.array(self.frog_ydata_log, dtype=float)
             mask = (wavelengths >= xmin) & (wavelengths <= xmax)
             w_filtered = wavelengths[mask]
@@ -170,7 +282,7 @@ class frogGUI(BaseGUI):
 
     def prepare_after_optimization(self):
         self.frog_continuous_button.after(0, lambda: self.frog_continuous_button.config(state="normal"))
-        self.optimize_button.after(0, lambda: self.optimize_button.conig(state="normal"))
+        self.optimize_button.after(0, lambda: self.optimize_button.config(state="normal"))
 
     def objective_gdd_tod_fod(self, gdd, tod, fod, c_lambda, filter_width):
         '''

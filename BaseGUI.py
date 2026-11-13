@@ -10,6 +10,7 @@ import os, json
 from pathlib import Path
 from datetime import datetime
 
+
 def _json_converter(o):
     if isinstance(o, np.integer):
         return int(o)

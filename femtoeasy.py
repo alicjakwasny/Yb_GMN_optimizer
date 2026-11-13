@@ -9,7 +9,7 @@ class frog:
         self.url = url
 
     async def start_acquisition(self):
-        acquisition_url = self.url + '/runner/start'
+        acquisition_url = self.url + 'runner/start'
         async with httpx.AsyncClient() as client:
             response_acquisition = await client.put(acquisition_url)
             print(f'Start acquisition status code: {response_acquisition}')

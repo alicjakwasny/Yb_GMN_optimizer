@@ -190,7 +190,8 @@ class WaveShaper:
         Connect to WaveShaper and initiate WaveShaper class object that you use for communication with WaveShaper.
         '''
 
-        self.ip = '169.254.6.8'
+        #self.ip = '169.254.6.8'
+        self.ip = "localhost:8000"
         result = requests.get('http://' + self.ip + '/waveshaper/devinfo').json()
 
         self.start_freq = result['startfreq']
