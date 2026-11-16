@@ -502,9 +502,10 @@ class frogGUI(BaseGUI):
                 "xdata": phase_xdata,
                 "ydata": self.phase_ydata,
             },
-            "qmini": {
-                "xdata": self.best_spectrum_xdata,
-                "ydata": self.best_spectrum_ydata_lin,
+            "frog": {
+                "xdata": getattr(self, "best_frog_xdata", getattr(self, "frog_xdata", [])),
+                "ydata": getattr(self, "best_frog_ydata", getattr(self, "frog_ydata", [])),
+                "phase_ydata": getattr(self, "best_frog_phase_ydata", getattr(self, "frog_phase_ydata", [])),
             },
             "fitness": best_fitness,
             "fitness_curve": self.fitness_list,
