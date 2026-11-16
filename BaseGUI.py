@@ -112,6 +112,13 @@ class BaseGUI:
         self.connect_to_waveshaper()
         self.connect_to_feedback()
 
+    def get_figure_size(self):
+        #Oblicza rozmiar figury Matplotlib proporcjonalnie do rozdzielczości ekranu.
+        screen_h = self.root.winfo_screenheight()
+        fig_w = max(3.6, min(5.2, (screen_h * 0.30) / 100))
+        fig_h = max(2.5, min(4.0, (screen_h * 0.23) / 100))
+        return (fig_w, fig_h)
+
     def setup_feedback_plot(self):
         raise NotImplementedError
 
