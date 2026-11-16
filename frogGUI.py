@@ -8,10 +8,12 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from waveshaper import scale_0_1_to_limit, thz_to_nm
 from femtoeasy import frog
+import ctypes
 
 class frogGUI(BaseGUI):
     def setup_feedback_plot(self):
-        self.frog_figure = Figure(figsize=(5, 4), dpi=100, tight_layout = True)
+        #self.frog_figure = Figure(figsize=(5, 4), dpi=100, tight_layout = True)
+        self.frog_figure = Figure(figsize=self.get_figure_size(), dpi=100, tight_layout=True)
         self.frog_ax = self.frog_figure.add_subplot(111)
         self.frog_ax.set_title("FROG spectrum")
         self.frog_ax.set_xlabel("Wavelength (nm)")
@@ -39,7 +41,8 @@ class frogGUI(BaseGUI):
         self.frog_canvas.get_tk_widget().grid(row=0, column=0)
 
     def setup_best_feedback_plot(self):
-        self.best_frog_figure = Figure(figsize=(5, 4), dpi=100, tight_layout=True)
+        #self.best_frog_figure = Figure(figsize=(5, 4), dpi=100, tight_layout=True)
+        self.best_frog_figure = Figure(figsize=self.get_figure_size(), dpi=100, tight_layout=True)
         self.best_frog_ax = self.best_frog_figure.add_subplot(111)
         self.best_frog_ax.set_title("Frog")
         self.best_frog_ax.set_xlabel("Wavelength (nm)")
@@ -48,7 +51,7 @@ class frogGUI(BaseGUI):
         self.best_frog_ax.grid(True, color="darkviolet", alpha=0.3)
 
         self.best_frog_ax2 = self.best_frog_ax.twinx()
-        self.best_frog_ax2.set_ylabel("Spectral phase")
+        self.best_frog_ax2.set_ylabel("Phase [rad]")
         self.best_frog_line2, = self.best_frog_ax2.plot([], [], color="hotpink")
         self.best_frog_ax2.grid(True, color="hotpink", alpha=0.3)
 
@@ -74,9 +77,14 @@ class frogGUI(BaseGUI):
         self.frog_scale_lin = ttk.Checkbutton(read_frame, text = "Linear scale", variable=self.scale_lin)
         self.frog_scale_lin.grid(row=2, column=0)
 
-        self.scale_log = tk.BooleanVar(value=True)
-        #self.frog_scale_log = ttk.Checkbutton(read_frame, text="Logarythmic scale", variable=self.scale_log)
-        #self.frog_scale_log.grid(row=2, column=1)
+        self.show_phase = tk.BooleanVar(value=True)
+        self.frog_show_phase = ttk.Checkbutton(
+            read_frame,
+            text="Show phase",
+            variable=self.show_phase,
+            command=self.show_feedback_plot,
+        )
+        self.frog_show_phase.grid(row=2, column=1)
 
         ttk.Label(read_frame, text="Measurement frequency [Hz]:").grid(row=4, column=0, sticky='w')
         self.continuous_freq_entry = ttk.Entry(read_frame, width=10)
@@ -113,66 +121,35 @@ class frogGUI(BaseGUI):
         await self.frog_dev.start_acquisition()
 
     def read_frog(self, update_plot=True):
-        '''
-        acquired_data, retrieved_data = self.frog_dev.get_frog_data()
-        return acquired_data, retrieved_data
-        '''
         # Pobieranie danych w sposób synchroniczny dla interfejsu Tkinter
-        loop = asyncio.get_event_loop()
-        acquired_data, retrieved_data = loop.run_until_complete(
+        acquired_data, retrieved_data = asyncio.run(
             self.frog_dev.get_frog_data()
         )
 
-        '''
-        # --- TYMCAZASOWY TEST ---
-        print("ACQUIRED:", type(acquired_data),
-              acquired_data.keys() if isinstance(acquired_data, dict) else acquired_data)
-        print("RETRIEVED:", type(retrieved_data),
-              retrieved_data.keys() if isinstance(retrieved_data, dict) else retrieved_data)
-        if isinstance(retrieved_data, dict) and "dataSeries" in retrieved_data:
-            print("RETRIEVED dataSeries keys:", retrieved_data["dataSeries"].keys())
-        return acquired_data, retrieved_data
-        # ------------------------
-        '''
+        # Inicjalizacja na wypadek chwilowego braku rekonstrukcji
+        self.frog_xdata = getattr(self, "frog_xdata", [])
+        self.frog_ydata = getattr(self, "frog_ydata", [])
+        self.frog_phase_ydata = getattr(self, "frog_phase_ydata", [])
 
-        # Wyciągamy punkty widma do zmiennych używanych przez wykres GUI
+        # Wyciągamy punkty widma i fazy do zmiennych używanych przez wykres GUI
         if retrieved_data and "dataSeries" in retrieved_data:
             ds = retrieved_data["dataSeries"]
-            print("Klucze w retrieved dataSeries:", list(ds.keys()))  # jednorazowy podgląd nazw kluczy
-
-            # ----- TESTY ------
-            print("retrievedSpectrum:", type(ds.get("retrievedSpectrum")),
-                  ds.get("retrievedSpectrum", {}).keys() if isinstance(ds.get("retrievedSpectrum"), dict) else ds.get(
-                      "retrievedSpectrum"))
-            print("spectralProfileMod:", type(ds.get("spectralProfileMod")),
-                  ds.get("spectralProfileMod", {}).keys() if isinstance(ds.get("spectralProfileMod"), dict) else ds.get(
-                      "spectralProfileMod"))
-            print("spectralProfilePhase:", type(ds.get("spectralProfilePhase")),
-                  ds.get("spectralProfilePhase", {}).keys() if isinstance(ds.get("spectralProfilePhase"),
-                                                                          dict) else ds.get("spectralProfilePhase"))
-
-
             spectrum = ds.get("spectralProfileMod", {})
             phase = ds.get("spectralProfilePhase", {})
 
-            self.frog_xdata = spectrum.get("xValues", [])
-            self.frog_ydata = spectrum.get("yValues", [])
-            self.frog_phase_ydata = phase.get("yValues", [])
+            x_raw = spectrum.get("xValues", [])
+            y_raw = spectrum.get("yValues", [])
+            phase_raw = phase.get("yValues", [])
 
-            if len(self.frog_xdata) > 0:
-                print(
-                    f"Jednostka X: {spectrum.get('xUnit')}, zakres: {np.min(self.frog_xdata)} .. {np.max(self.frog_xdata)}")
-
-            # --- DO DIAGNOSTYKI ---
-            if len(self.frog_xdata) > 0:
-                x_min = np.min(self.frog_xdata)
-                x_max = np.max(self.frog_xdata)
-                print(f"[DIAGNOSTYKA FROG] Długość tablicy: {len(self.frog_xdata)}")
-                print(f"[DIAGNOSTYKA FROG] Wartości x: min={x_min:.4e}, max={x_max:.4e}")
-                print(f"[DIAGNOSTYKA FROG] Pierwsze 3 próbki: {self.frog_xdata[:3]}")
+            # Odwracamy kolejność punktów, jeśli oś X jest malejąca (1620 nm -> 768 nm)
+            if len(x_raw) > 1 and x_raw[0] > x_raw[-1]:
+                self.frog_xdata = x_raw[::-1]
+                self.frog_ydata = y_raw[::-1]
+                self.frog_phase_ydata = phase_raw[::-1]
             else:
-                print("[DIAGNOSTYKA FROG] Tablica self.frog_xdata jest PUSTA!")
-            # ----------------------------------------
+                self.frog_xdata = x_raw
+                self.frog_ydata = y_raw
+                self.frog_phase_ydata = phase_raw
 
         if update_plot:
             self.show_feedback_plot()
@@ -225,68 +202,79 @@ class frogGUI(BaseGUI):
         pass
 
     def show_feedback_plot(self):
+        if not hasattr(self, "frog_xdata") or len(self.frog_xdata) == 0:
+            return
+
         xmin = float(self.lambda_min_entry.get())
         xmax = float(self.lambda_max_entry.get())
 
+        wavelengths = np.array(self.frog_xdata, dtype=float)
+        intensities = np.array(self.frog_ydata, dtype=float)
+        mask = (wavelengths >= xmin) & (wavelengths <= xmax)
+        w_filtered = wavelengths[mask]
+        i_filtered = intensities[mask]
+
+        # Lewa oś (ax): Widmo + próg szerokości + prostokąt pasma 1550 nm
         if self.scale_lin.get():
-            self.frog_line.set_xdata(self.frog_xdata)
-            self.frog_line.set_ydata(self.frog_ydata)
+            self.frog_line.set_xdata(wavelengths)
+            self.frog_line.set_ydata(intensities)
             self.frog_line.set_visible(True)
             self.frog_ax.set_xlim(xmin, xmax)
-            self.frog_ax.set_ylim(0, 1.1 * np.max(self.frog_ydata))
 
+            y_max = 1.1 * np.max(i_filtered) if len(i_filtered) > 0 else 1.0
+            self.frog_ax.set_ylim(0, max(1e-9, y_max))
             self.frog_ax.get_yaxis().set_visible(True)
-        else:
-            self.frog_line.set_visible(False)
-            self.frog_ax.get_yaxis().set_visible(False)
 
-        if self.scale_log.get():
-            self.frog_line2.set_xdata(self.frog_xdata)
-            lin = np.array(self.frog_ydata, dtype=float)
-            lin[lin <= 0] = 1e-20
-            self.frog_ydata_log = 10 * np.log10(lin/1000)
-            self.frog_line2.set_ydata(self.frog_ydata_log)
+            if len(w_filtered) > 1 and np.max(i_filtered) > 0:
+                # Obliczenie szerokości 3 dB
+                width = data.compute_width_db(w_filtered, i_filtered, level=3)
+                treshold_value = 0.5 * np.max(i_filtered)
 
-            self.frog_line2.set_visible(True)
-            self.frog_line2.set_ydata(self.frog_ydata_log)
+                self.treshold_line.set_xdata([xmin, xmax])
+                self.treshold_line.set_ydata([treshold_value, treshold_value])
+                self.treshold_line.set_visible(True)
 
-            self.frog_line2.set_visible(True)
-            self.frog_ax2.set_xlim(xmin, xmax)
+                self.treshold_text.set_y(treshold_value)
+                self.treshold_text.set_tezt(f"3 dB: {width: .2f} nm")
+                self.treshold_text.set_visible(True)
 
-            self.frog_ax2.set_ylim(-20, 20)
-            treshold_value = max(self.frog_ydata_log) - 9
-            self.treshold_line.set_ydata([treshold_value, treshold_value])
-            # aktualizacja napisu
-            wavelengths = np.array(self.frog_xdata, dtype=float)
-            intensities = np.array(self.frog_ydata_log, dtype=float)
-            mask = (wavelengths >= xmin) & (wavelengths <= xmax)
-            w_filtered = wavelengths[mask]
-            i_filtered = intensities[mask]
-            width = data.compute_width_db(w_filtered, i_filtered, level=9)
-            self.treshold_text.set_y(treshold_value)
+                # Prostokąt docelowego pasma wokół 150 nm
+                lambda_min = 1520.0     # nm, może być do zmiany
+                lambda_max = 1580.0     # nm, może być do zmiany
+                rectangle = ((w_filtered >= lambda_min) & (w_filtered <= lambda_max)).astype(float)
+                rectangle_scaled = rectangle * (0.9 * np.max(i_filtered))
+                self.rectangle_line.set_xdata(w_filtered)
+                self.rectangle_line.set_ydata(rectangle_scaled)
+                self.rectangle_line.set_visible(True)
+            else:
+                self.frog_line.set_visible(False)
+                self.treshold_line.set_visible(False)
+                self.treshold_text.set_visible(False)
+                self.rectangle_line.set_visible(False)
+                self.frog_ax.get_yaxis().set_visible(False)
 
-            self.treshold_text.set_text(f"3 dB: {width:.2f} nm")
+            # Prawa oś (ax2): Faza spektralna
+            has_phase = (
+                hasattr(self, "frog_phase_ydata")
+                and len(self.frog_phase_ydata) == len(wavelengths)
+            )
+            if self.show_phase.get() and has_phase:
+                phases = np.array(self.frog_phase_ydata, dtype=float)
+                self.frog_line2.set_xdata(wavelengths)
+                self.frog_line2.set_ydata(phases)
+                self.frog_line2.set_visible(True)
+                self.frog_ax2.set_xlim(xmin, xmax)
 
-            # prostokąt
-            lambda_min = 782.5 #nm
-            lambda_max = 837.5 #nm
-            rectangle = ((w_filtered >= lambda_min) & (w_filtered <= lambda_max)).astype(float) # zrob prostokat
-            I_min = -15 # minimum value of intensity
-            I_max = np.max(i_filtered)
-            if I_max < -5:
-                I_max = I_min
-            elif I_max < 4:
-                I_max = 4
-            rectangle_scaled = rectangle * (I_max - I_min) + I_min # wyskaluj prostokąt
-            self.rectangle_line.set_xdata(w_filtered)
-            self.rectangle_line.set_ydata(rectangle_scaled)
+                p_filtered = phases[mask]
+                if len(p_filtered) > 0:
+                    self.frog_ax2.set_ylim(np.min(p_filtered) - 0.5, np.max(p_filtered) + 0.5)
+                self.frog_ax2.get_yaxis().set_visible(True)
 
-            self.frog_ax2.get_yaxis().set_visible(True)
-        else:
-            self.frog_line2.set_visible(False)
-            self.frog_ax2.get_yaxis().set_visible(False)
+            else:
+                self.frog_line2.set_visible(False)
+                self.frog_ax2.get_yaxis().set_visible(False)
 
-        self.frog_canvas.draw()
+            self.frog_canvas.draw()
 
     def prepare_for_optimization(self):
         if self.frog_continuous_button["state"] == "disabled":
@@ -413,31 +401,86 @@ class frogGUI(BaseGUI):
         return fitness
 
     def show_best_feedback_plot(self):
+        if not hasattr(self, "best_frog_xdata") or len(self.best_frog_xdata) == 0:
+            return
+
         xmin = float(self.lambda_min_entry.get())
         xmax = float(self.lambda_max_entry.get())
 
-        self.best_spectrum_line.set_xdata(self.best_spectrum_xdata)
-        self.best_spectrum_line.set_ydata(self.best_spectrum_ydata_lin)
-        self.best_spectrum_line2.set_xdata(self.best_spectrum_xdata)
-        lin = np.array(self.best_spectrum_ydata_lin, dtype=float)
-        lin[lin <= 0] = 1e-20
-        self.best_spectrum_ydata_log = 10*np.log10(lin/1000)
-        self.best_spectrum_line2.set_ydata(self.best_spectrum_ydata_log)
-        self.best_spectrum_ax.set_xlim(xmin, xmax)
-        self.best_spectrum_ax.set_ylim(0, 1.1 * np.max(self.best_spectrum_ydata_lin))
-        self.best_spectrum_ax2.set_xlim(xmin, xmax)
-        self.best_spectrum_ax2.set_ylim(0, 1.1 * np.max(self.best_spectrum_ydata_log))
-        self.best_spectrum_ax2.set_ylim(-20, 20)
+        wavelengths = np.array(self.best_frog_xdata, dtype=float)
+        intensities = np.array(self.best_frog_ydata, dtype=float)
+        mask = (wavelengths >= xmin) & (wavelengths <= xmax)
+        w_filtered = wavelengths[mask]
+        i_filtered = intensities[mask]
 
-        self.best_spectrum_line.set_visible(True)
-        self.best_spectrum_line2.set_visible(True)
-        self.best_spectrum_canvas.draw()
+        # 1. Lewa oś (best_frog_ax): Najlepsze widmo + próg 3 dB + prostokąt 1550 nm
+        if self.scale_lin.get():
+            self.best_frog_line.set_xdata(wavelengths)
+            self.best_frog_line.set_ydata(intensities)
+            self.best_frog_line.set_visible(True)
+            self.best_frog_ax.set_xlim(xmin, xmax)
+
+            y_max = 1.1 * np.max(i_filtered) if len(i_filtered) > 0 else 1.0
+            self.best_frog_ax.set_ylim(0, max(1e-9, y_max))
+            self.best_frog_ax.get_yaxis().set_visible(True)
+
+            if len(w_filtered) > 1 and np.max(i_filtered) > 0:
+                width = data.compute_width_db(w_filtered, i_filtered, level=3)
+                treshold_value = 0.5 * np.max(i_filtered)
+
+                self.best_treshold_line.set_xdata([xmin, xmax])
+                self.best_treshold_line.set_ydata([treshold_value, treshold_value])
+                self.best_treshold_line.set_visible(True)
+
+                self.best_treshold_text.set_y(treshold_value)
+                self.best_treshold_text.set_text(f"3 dB: {width:.2f} nm")
+                self.best_treshold_text.set_visible(True)
+
+                # Prostokąt pasma docelowego wokół 1550 nm
+                lambda_min = 1520.0  # nm (dostosuj dolną granicę pasma)
+                lambda_max = 1580.0  # nm (dostosuj górną granicę pasma)
+                rectangle = ((w_filtered >= lambda_min) & (w_filtered <= lambda_max)).astype(float)
+                rectangle_scaled = rectangle * (0.9 * np.max(i_filtered))
+                self.best_rectangle_line.set_xdata(w_filtered)
+                self.best_rectangle_line.set_ydata(rectangle_scaled)
+                self.best_rectangle_line.set_visible(True)
+        else:
+            self.best_frog_line.set_visible(False)
+            self.best_treshold_line.set_visible(False)
+            self.best_treshold_text.set_visible(False)
+            self.best_rectangle_line.set_visible(False)
+            self.best_frog_ax.get_yaxis().set_visible(False)
+
+        # 2. Prawa oś (best_frog_ax2): Najlepsza faza widmowa (spectralProfilePhase)
+        has_phase = (
+                hasattr(self, "best_frog_phase_ydata")
+                and len(self.best_frog_phase_ydata) == len(wavelengths)
+        )
+        if self.show_phase.get() and has_phase:
+            phases = np.array(self.best_frog_phase_ydata, dtype=float)
+            self.best_frog_line2.set_xdata(wavelengths)
+            self.best_frog_line2.set_ydata(phases)
+            self.best_frog_line2.set_visible(True)
+            self.best_frog_ax2.set_xlim(xmin, xmax)
+
+            p_filtered = phases[mask]
+            if len(p_filtered) > 0:
+                self.best_frog_ax2.set_ylim(np.min(p_filtered) - 0.5, np.max(p_filtered) + 0.5)
+            self.best_frog_ax2.get_yaxis().set_visible(True)
+        else:
+            self.best_frog_line2.set_visible(False)
+            self.best_frog_ax2.get_yaxis().set_visible(False)
+
+        self.best_frog_canvas.draw()
 
     def update_best_feedback_plot(self, gdd, tod, fod, central_lambda, filter_width):
-        self.set_gdd_tod_fod(gdd, tod, fod, central_lambda, filter_width)
-        self.read_frog()
-        self.best_spectrum_xdata, self.best_spectrum_ydata_lin = self.frog_xdata, self.frog_ydata
-        self.show_best_feedback_plot()
+        self.set_gdd_tod_fod(gdd, tod, fod, central_lambda, filter_width, update_plot=False)
+        self.read_frog(update_plot=False)
+        self.best_frog_xdata = list(getattr(self, "frog_xdata", []))
+        self.best_frog_ydata = list(getattr(self, "frog_ydata", []))
+        self.best_frog_phase_ydata = list(getattr(self, "frog_phase_ydata", []))
+        # Odświeżamy wykres w głównym wątku Tkintera
+        self.root.after(0, self.show_best_feedback_plot)
 
     def formulate_data_for_saving(self, best_gdd, best_tod, best_fod, best_lambda_c, best_filter_width, best_fitness):
         attenuation_xdata = [thz_to_nm(x) for x in self.attenuation_xdata]
@@ -471,6 +514,11 @@ class frogGUI(BaseGUI):
 
 
 if __name__ == "__main__":
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1) #obsługa wysokiej rozdzielczości
+    except Exception:
+        pass
+
     root = tk.Tk()
     app = frogGUI(root)
     root.mainloop()
