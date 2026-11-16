@@ -115,8 +115,8 @@ class BaseGUI:
     def get_figure_size(self):
         #Oblicza rozmiar figury Matplotlib proporcjonalnie do rozdzielczości ekranu.
         screen_h = self.root.winfo_screenheight()
-        fig_w = max(3.6, min(5.2, (screen_h * 0.30) / 100))
-        fig_h = max(2.5, min(4.0, (screen_h * 0.23) / 100))
+        fig_w = max(5.5, min(8.5, (screen_h * 0.36) / 100))
+        fig_h = max(3.8, min(5.5, (screen_h * 0.34) / 100))
         return (fig_w, fig_h)
 
     def setup_feedback_plot(self):

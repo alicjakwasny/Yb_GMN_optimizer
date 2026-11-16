@@ -157,9 +157,14 @@ class frogGUI(BaseGUI):
         return acquired_data, retrieved_data
 
     def frog_read_measurement(self, feedback_device):
+        '''
         loop = asyncio.get_event_loop()
         acquired_data, retrieved_data = loop.run_until_complete(
             self.feedback_device.get_frog_data()
+        )
+        '''
+        acquired_data, retrieved_data = asyncio.run(
+            self.frog_dev.get_frog_data()
         )
 
         if retrieved_data and "dataSeries" in acquired_data:
@@ -175,14 +180,16 @@ class frogGUI(BaseGUI):
         '''działa w WĄTKU, nie blokuje Tkintera'''
         while self.feedback_continuous:
             delay = 1 / float(self.continuous_freq_entry.get())
-            x, y = self.frog_read_measurement(self.feedback_device)
+            x, y, phase_y = self.frog_read_measurement(self.feedback_device)
 
-            self.root.after(0, self.update_feedback_plot, x, y)
+            self.root.after(0, self.update_feedback_plot, x, y, phase_y)
             time.sleep(delay)
 
-    def update_feedback_plot(self, x, y):
+    def update_feedback_plot(self, x, y, phase_y=None):
         self.frog_xdata = x
         self.frog_ydata = y
+        if phase_y is not None:
+            self.frog_phase_ydata = phase_y
         self.show_feedback_plot()
 
     def start_continuous_read(self):
@@ -198,8 +205,7 @@ class frogGUI(BaseGUI):
             # po odznaczeniu - po prostu pętla się przerwie
             self.feedback_continuous = False
             self.frog_continuous_button.configure(style="Black.TButton")
-            self.talk("Stopped continuous Qmini measurement")
-        pass
+            self.talk("Stopped continuous FROG measurements")
 
     def show_feedback_plot(self):
         if not hasattr(self, "frog_xdata") or len(self.frog_xdata) == 0:
@@ -235,7 +241,7 @@ class frogGUI(BaseGUI):
                 self.treshold_line.set_visible(True)
 
                 self.treshold_text.set_y(treshold_value)
-                self.treshold_text.set_tezt(f"3 dB: {width: .2f} nm")
+                self.treshold_text.set_text(f"3 dB: {width: .2f} nm")
                 self.treshold_text.set_visible(True)
 
                 # Prostokąt docelowego pasma wokół 150 nm
