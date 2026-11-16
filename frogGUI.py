@@ -90,7 +90,6 @@ class frogGUI(BaseGUI):
         self.read_button = ttk.Button(read_frame, text="Read one measurement", command=self.read_frog)
         self.read_button.grid(row=5, column=1, pady=5)
 
-
     def connect_to_feedback(self):
         '''
         self.frog_dev = frog
@@ -138,12 +137,31 @@ class frogGUI(BaseGUI):
 
         # Wyciągamy punkty widma do zmiennych używanych przez wykres GUI
         if retrieved_data and "dataSeries" in retrieved_data:
-            spectrum = retrieved_data["dataSeries"].get("retrievedSpectrum", {})
+            ds = retrieved_data["dataSeries"]
+            print("Klucze w retrieved dataSeries:", list(ds.keys()))  # jednorazowy podgląd nazw kluczy
+
+            # ----- TESTY ------
+            print("retrievedSpectrum:", type(ds.get("retrievedSpectrum")),
+                  ds.get("retrievedSpectrum", {}).keys() if isinstance(ds.get("retrievedSpectrum"), dict) else ds.get(
+                      "retrievedSpectrum"))
+            print("spectralProfileMod:", type(ds.get("spectralProfileMod")),
+                  ds.get("spectralProfileMod", {}).keys() if isinstance(ds.get("spectralProfileMod"), dict) else ds.get(
+                      "spectralProfileMod"))
+            print("spectralProfilePhase:", type(ds.get("spectralProfilePhase")),
+                  ds.get("spectralProfilePhase", {}).keys() if isinstance(ds.get("spectralProfilePhase"),
+                                                                          dict) else ds.get("spectralProfilePhase"))
+
+
+            spectrum = ds.get("spectralProfileMod", {})
+            phase = ds.get("spectralProfilePhase", {})
+
             self.frog_xdata = spectrum.get("xValues", [])
             self.frog_ydata = spectrum.get("yValues", [])
-
-            # Faza spektralna
             self.frog_phase_ydata = phase.get("yValues", [])
+
+            if len(self.frog_xdata) > 0:
+                print(
+                    f"Jednostka X: {spectrum.get('xUnit')}, zakres: {np.min(self.frog_xdata)} .. {np.max(self.frog_xdata)}")
 
             # --- DO DIAGNOSTYKI ---
             if len(self.frog_xdata) > 0:
