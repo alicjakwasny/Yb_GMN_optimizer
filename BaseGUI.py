@@ -24,6 +24,7 @@ class BaseGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("GMN Control Panel")
+        self.root.state("zoomed")
 
         # tworzymy folder na pomiary
         self.base_folder = Path(__file__).parent
@@ -42,8 +43,47 @@ class BaseGUI:
         self.fitness = None
 
         # Layout
-        self.main_frame = ttk.Frame(root)
-        self.main_frame.pack(fill='both', expand=True)
+        #self.main_frame = ttk.Frame(root)
+        #self.main_frame.pack(fill='both', expand=True)
+
+        # Layout z suwakami
+        outer_frame = ttk.Frame(self.root)
+        outer_frame.pack(fill="both", expand=True)
+
+        v_scroll = ttk.Scrollbar(outer_frame, orient="vertical")
+        v_scroll.pack(side="right", fill="y")
+
+        h_scroll = ttk.Scrollbar(outer_frame, orient="horizontal")
+        h_scroll.pack(side="bottom", fill="x")
+
+        self.main_canvas = tk.Canvas(
+            outer_frame,
+            yscrollcommand=v_scroll.set,
+            xscrollcommand=h_scroll.set,
+            highlightthickness=0,
+        )
+        self.main_canvas.pack(side="left", fill="both", expand=True)
+
+        v_scroll.config(command=self.main_canvas.yview)
+        h_scroll.config(command=self.main_canvas.xview)
+
+        self.main_frame = ttk.Frame(self.main_canvas)
+        self.main_canvas.create_window((0, 0), window=self.main_frame, anchor="nw")
+
+        self.main_frame.bind(
+            "<Configure>",
+            lambda e: self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all")),
+        )
+
+        self.main_canvas.bind_all(
+            "<MouseWheel>",
+            lambda e: self.main_canvas.yview_scroll(int(-1*(e.delta/120)), "units"),
+        )
+
+        self.main_canvas.bind_all(
+            "<Shift-MouseWheel>",
+            lambda e: self.main_canvas.xview_scroll(int(-1*(e.delta/120)), "units"),
+        )
 
         self.left_frame = ttk.Frame(self.main_frame)
         self.left_frame.pack(side='left', fill='both', expand=True)
