@@ -425,8 +425,8 @@ class BaseGUI:
         ydata = self.phase_ydata
         self.phase_line.set_xdata(xdata)
         self.phase_line.set_ydata(ydata)
-        xmin = 1530  # nm
-        xmax = 1549.5  # nm
+        xmin = 1014  # nm
+        xmax = 1066  # nm
         self.phase_ax.set_xlim(xmin, xmax)
 
         xdata = np.array(xdata)
