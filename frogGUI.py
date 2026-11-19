@@ -34,7 +34,6 @@ class frogGUI(BaseGUI):
             ha="right", va="bottom",
             transform=self.frog_ax2.get_yaxis_transform()
         )
-        self.rectangle_line, = self.frog_ax2.plot([], [], color="darkmagenta")
 
         self.frog_canvas = FigureCanvasTkAgg(self.frog_figure, master=self.left_frame)
         self.frog_canvas.draw()
@@ -65,12 +64,12 @@ class frogGUI(BaseGUI):
 
         ttk.Label(read_frame, text="Min wavelength:").grid(row=0, column=0, sticky='w')
         self.lambda_min_entry = ttk.Entry(read_frame, width=10)
-        self.lambda_min_entry.insert(0, 750)
+        self.lambda_min_entry.insert(0, 800)
         self.lambda_min_entry.grid(row=0, column=1)
 
         ttk.Label(read_frame, text="Max wavelength:").grid(row=1, column=0, sticky='w')
         self.lambda_max_entry = ttk.Entry(read_frame, width=10)
-        self.lambda_max_entry.insert(0, 900)
+        self.lambda_max_entry.insert(0, 1250)
         self.lambda_max_entry.grid(row=1, column=1)
 
         self.scale_lin = tk.BooleanVar(value=True)
@@ -130,6 +129,13 @@ class frogGUI(BaseGUI):
         self.frog_xdata = getattr(self, "frog_xdata", [])
         self.frog_ydata = getattr(self, "frog_ydata", [])
         self.frog_phase_ydata = getattr(self, "frog_phase_ydata", [])
+
+        # Tymczasowy podgląd współczynników fitu fazy z FROG-a:
+        print("Top-level retrieved keys:", list(retrieved_data.keys()))
+        if "parameters" in retrieved_data:
+            print("Retrieved parameters:", retrieved_data["parameters"])
+        phase_dict = retrieved_data.get("dataSeries", {}).get("spectralProfilePhase", {})
+        print("spectralProfilePhase keys:", {k: v for k, v in phase_dict.items() if k not in ("xValues", "yValues")})
 
         # Wyciągamy punkty widma i fazy do zmiennych używanych przez wykres GUI
         if retrieved_data and "dataSeries" in retrieved_data:
@@ -220,7 +226,7 @@ class frogGUI(BaseGUI):
         w_filtered = wavelengths[mask]
         i_filtered = intensities[mask]
 
-        # Lewa oś (ax): Widmo + próg szerokości + prostokąt pasma 1550 nm
+        # Lewa oś (ax): Widmo + próg szerokości
         if self.scale_lin.get():
             self.frog_line.set_xdata(wavelengths)
             self.frog_line.set_ydata(intensities)
@@ -244,38 +250,33 @@ class frogGUI(BaseGUI):
                 self.treshold_text.set_text(f"3 dB: {width: .2f} nm")
                 self.treshold_text.set_visible(True)
 
-                # Prostokąt docelowego pasma wokół 150 nm
-                lambda_min = 1520.0     # nm, może być do zmiany
-                lambda_max = 1580.0     # nm, może być do zmiany
-                rectangle = ((w_filtered >= lambda_min) & (w_filtered <= lambda_max)).astype(float)
-                rectangle_scaled = rectangle * (0.9 * np.max(i_filtered))
-                self.rectangle_line.set_xdata(w_filtered)
-                self.rectangle_line.set_ydata(rectangle_scaled)
-                self.rectangle_line.set_visible(True)
             else:
                 self.frog_line.set_visible(False)
                 self.treshold_line.set_visible(False)
                 self.treshold_text.set_visible(False)
-                self.rectangle_line.set_visible(False)
                 self.frog_ax.get_yaxis().set_visible(False)
 
-            # Prawa oś (ax2): Faza spektralna
+            # 2. Prawa oś (ax2): Faza widmowa tylko tam, gdzie intensywność > 0.1 * max
             has_phase = (
-                hasattr(self, "frog_phase_ydata")
-                and len(self.frog_phase_ydata) == len(wavelengths)
+                    hasattr(self, "frog_phase_ydata")
+                    and len(self.frog_phase_ydata) == len(wavelengths)
             )
-            if self.show_phase.get() and has_phase:
+            if self.show_phase.get() and has_phase and len(intensities) > 0:
                 phases = np.array(self.frog_phase_ydata, dtype=float)
+
+                # Próg 0.1 względem maksimum widma (jeśli widmo jest znormalizowane do 1, to dokładnie 0.1)
+                intensity_threshold = 0.1 * np.max(intensities)
+                phases_masked = np.where(intensities > intensity_threshold, phases, np.nan)
+
                 self.frog_line2.set_xdata(wavelengths)
-                self.frog_line2.set_ydata(phases)
+                self.frog_line2.set_ydata(phases_masked)
                 self.frog_line2.set_visible(True)
                 self.frog_ax2.set_xlim(xmin, xmax)
 
-                p_filtered = phases[mask]
-                if len(p_filtered) > 0:
-                    self.frog_ax2.set_ylim(np.min(p_filtered) - 0.5, np.max(p_filtered) + 0.5)
+                p_filtered = phases_masked[mask]
+                if np.any(~np.isnan(p_filtered)):
+                    self.frog_ax2.set_ylim(np.nanmin(p_filtered) - 0.5, np.nanmax(p_filtered) + 0.5)
                 self.frog_ax2.get_yaxis().set_visible(True)
-
             else:
                 self.frog_line2.set_visible(False)
                 self.frog_ax2.get_yaxis().set_visible(False)
@@ -339,54 +340,7 @@ class frogGUI(BaseGUI):
 
         lambda_min = 782.5  # nm
         lambda_max = 837.5  # nm
-        rectangle = ((w_filtered >= lambda_min) & (w_filtered <= lambda_max)).astype(float)  # zrob prostokat
-        I_min = -15  # minimum value of intensity
-        I_max = np.max(intensities_db)
-        if I_max < -5:  # 7:
-            fitness = 1000000
-            self.gdd_indicator.config(
-                text=f'Current GDD: {gdd: .2f}, TOD: {tod: .2f}, FOD: {fod: .2f}, Lambda: {c_lambda: .2f}, Bandwidth: {filter_width: .2f}')
-            self.fitness_indicator.config(text=f'Current fitness: {fitness: .2f}')
-            return fitness
-        elif I_max < 10:
-            I_max = 10
 
-        I_max_lin = np.max(lin)
-        I_min_lin = np.min(lin)
-        rectangle_scaled = rectangle * (
-                I_max_lin - I_min_lin) + I_min_lin  # (I_max - I_min) + I_min   #wyskaluj prostokat
-
-        background = 1.0 - rectangle
-        background_scaled = background * (I_max_lin - I_min_lin) + I_min_lin  # (I_max - I_min) + I_min
-
-        spectrum_cut = intensities_db.copy()  # odciecie na -15 dB
-        spectrum_cut[intensities_db < -15] = -15
-
-        print("wavelengths:", w_filtered.shape)
-        print("intensities_db:", intensities_db.shape)
-        print("spectrum_cut:", spectrum_cut.shape)
-
-        energy_inside = 0.0
-        e_mask = (w_filtered >= lambda_min) & (w_filtered <= lambda_max)
-        w_filtered_e = w_filtered[e_mask]
-        i_filtered_e = lin[e_mask]  # spectrum_cut[e_mask]
-
-        # USING TRAPZ
-        energy_inside = np.trapezoid(i_filtered_e, w_filtered_e)
-        energy_full = np.trapezoid(rectangle_scaled[e_mask], w_filtered_e)
-
-        fulness = energy_inside / energy_full
-
-        rev_mask = ~e_mask
-        i_filtered_rev = lin[rev_mask]  # spectrum_cut[rev_mask]
-        w_filtered_rev = w_filtered[rev_mask]
-
-        # USING TRAPZ
-        energy_outside = np.trapezoid(i_filtered_rev, w_filtered_rev)
-        energy_out_full = np.trapezoid(background_scaled[rev_mask], w_filtered_rev)
-        fulness_background = energy_outside / energy_out_full
-
-        width = data.compute_width_db(w_filtered, spectrum_cut, level=3)
         if width < 5:  # 10:
             fitness = 1000000
             self.gdd_indicator.config(
@@ -419,7 +373,7 @@ class frogGUI(BaseGUI):
         w_filtered = wavelengths[mask]
         i_filtered = intensities[mask]
 
-        # 1. Lewa oś (best_frog_ax): Najlepsze widmo + próg 3 dB + prostokąt 1550 nm
+        # 1. Lewa oś (best_frog_ax): Najlepsze widmo + próg 3 dB
         if self.scale_lin.get():
             self.best_frog_line.set_xdata(wavelengths)
             self.best_frog_line.set_ydata(intensities)
@@ -441,41 +395,36 @@ class frogGUI(BaseGUI):
                 self.best_treshold_text.set_y(treshold_value)
                 self.best_treshold_text.set_text(f"3 dB: {width:.2f} nm")
                 self.best_treshold_text.set_visible(True)
-
-                # Prostokąt pasma docelowego wokół 1550 nm
-                lambda_min = 1520.0  # nm (dostosuj dolną granicę pasma)
-                lambda_max = 1580.0  # nm (dostosuj górną granicę pasma)
-                rectangle = ((w_filtered >= lambda_min) & (w_filtered <= lambda_max)).astype(float)
-                rectangle_scaled = rectangle * (0.9 * np.max(i_filtered))
-                self.best_rectangle_line.set_xdata(w_filtered)
-                self.best_rectangle_line.set_ydata(rectangle_scaled)
-                self.best_rectangle_line.set_visible(True)
         else:
             self.best_frog_line.set_visible(False)
             self.best_treshold_line.set_visible(False)
             self.best_treshold_text.set_visible(False)
-            self.best_rectangle_line.set_visible(False)
             self.best_frog_ax.get_yaxis().set_visible(False)
 
-        # 2. Prawa oś (best_frog_ax2): Najlepsza faza widmowa (spectralProfilePhase)
+        # 2. Prawa oś (ax2): Faza widmowa tylko tam, gdzie intensywność > 0.1 * max
         has_phase = (
-                hasattr(self, "best_frog_phase_ydata")
-                and len(self.best_frog_phase_ydata) == len(wavelengths)
+                hasattr(self, "frog_phase_ydata")
+                and len(self.frog_phase_ydata) == len(wavelengths)
         )
-        if self.show_phase.get() and has_phase:
-            phases = np.array(self.best_frog_phase_ydata, dtype=float)
-            self.best_frog_line2.set_xdata(wavelengths)
-            self.best_frog_line2.set_ydata(phases)
-            self.best_frog_line2.set_visible(True)
-            self.best_frog_ax2.set_xlim(xmin, xmax)
+        if self.show_phase.get() and has_phase and len(intensities) > 0:
+            phases = np.array(self.frog_phase_ydata, dtype=float)
 
-            p_filtered = phases[mask]
-            if len(p_filtered) > 0:
-                self.best_frog_ax2.set_ylim(np.min(p_filtered) - 0.5, np.max(p_filtered) + 0.5)
-            self.best_frog_ax2.get_yaxis().set_visible(True)
+            # Próg 0.1 względem maksimum widma (jeśli widmo jest znormalizowane do 1, to dokładnie 0.1)
+            intensity_threshold = 0.1 * np.max(intensities)
+            phases_masked = np.where(intensities > intensity_threshold, phases, np.nan)
+
+            self.frog_line2.set_xdata(wavelengths)
+            self.frog_line2.set_ydata(phases_masked)
+            self.frog_line2.set_visible(True)
+            self.frog_ax2.set_xlim(xmin, xmax)
+
+            p_filtered = phases_masked[mask]
+            if np.any(~np.isnan(p_filtered)):
+                self.frog_ax2.set_ylim(np.nanmin(p_filtered) - 0.5, np.nanmax(p_filtered) + 0.5)
+            self.frog_ax2.get_yaxis().set_visible(True)
         else:
-            self.best_frog_line2.set_visible(False)
-            self.best_frog_ax2.get_yaxis().set_visible(False)
+            self.frog_line2.set_visible(False)
+            self.frog_ax2.get_yaxis().set_visible(False)
 
         self.best_frog_canvas.draw()
 

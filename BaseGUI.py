@@ -180,7 +180,7 @@ class BaseGUI:
 
         ttk.Label(control_frame, text="Central wavelength:").grid(row=0, column=0, sticky='w')
         self.central_lambda_entry = ttk.Entry(control_frame, width=10)
-        self.central_lambda_entry.insert(0, 1540)
+        self.central_lambda_entry.insert(0, 1030)
         self.central_lambda_entry.grid(row=0, column=1)
 
         ttk.Label(control_frame, text="Attenuation filter:").grid(row=1, column=0, sticky="w")
@@ -197,12 +197,12 @@ class BaseGUI:
 
         ttk.Label(control_frame, text="Attenuation filter bw [nm]:").grid(row=2, column=0, sticky='w')
         self.atten_filter_bandwidth_entry = ttk.Entry(control_frame, width=10)
-        self.atten_filter_bandwidth_entry.insert(0, 7)
+        self.atten_filter_bandwidth_entry.insert(0, 3)
         self.atten_filter_bandwidth_entry.grid(row=2, column=1)
 
         ttk.Label(control_frame, text="GDD:").grid(row=3, column=0, sticky='w')
         self.gdd_entry = ttk.Entry(control_frame, width=10)
-        self.gdd_entry.insert(0, 0)
+        self.gdd_entry.insert(0, 0.78)
         self.gdd_entry.grid(row=3, column=1)
 
         ttk.Label(control_frame, text="TOD:").grid(row=3, column=2, sticky='w')
@@ -217,7 +217,7 @@ class BaseGUI:
 
         ttk.Label(control_frame, text="Phase central wavelength:").grid(row=5, column=0, sticky='w')
         self.phase_central_lambda_entry = ttk.Entry(control_frame, width=10)
-        self.phase_central_lambda_entry.insert(0, 1540)
+        self.phase_central_lambda_entry.insert(0, 1030)
         self.phase_central_lambda_entry.grid(row=5, column=1)
 
         self.set_gdd_button = ttk.Button(control_frame, text="Set", command=self.set_manual_gdd)
