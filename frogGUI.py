@@ -136,6 +136,8 @@ class frogGUI(BaseGUI):
             print("Retrieved parameters:", retrieved_data["parameters"])
         phase_dict = retrieved_data.get("dataSeries", {}).get("spectralProfilePhase", {})
         print("spectralProfilePhase keys:", {k: v for k, v in phase_dict.items() if k not in ("xValues", "yValues")})
+        print("retrievedData content:", retrieved_data.get("retrievedData"))
+
 
         # Wyciągamy punkty widma i fazy do zmiennych używanych przez wykres GUI
         if retrieved_data and "dataSeries" in retrieved_data:
