@@ -129,15 +129,7 @@ class frogGUI(BaseGUI):
         self.frog_xdata = getattr(self, "frog_xdata", [])
         self.frog_ydata = getattr(self, "frog_ydata", [])
         self.frog_phase_ydata = getattr(self, "frog_phase_ydata", [])
-
-        # Tymczasowy podgląd współczynników fitu fazy z FROG-a:
-        print("Top-level retrieved keys:", list(retrieved_data.keys()))
-        if "parameters" in retrieved_data:
-            print("Retrieved parameters:", retrieved_data["parameters"])
-        phase_dict = retrieved_data.get("dataSeries", {}).get("spectralProfilePhase", {})
-        print("spectralProfilePhase keys:", {k: v for k, v in phase_dict.items() if k not in ("xValues", "yValues")})
-        print("retrievedData content:", retrieved_data.get("retrievedData"))
-
+        self.frog_retrieved_data = retrieved_data.get("retrievedData", {})
 
         # Wyciągamy punkty widma i fazy do zmiennych używanych przez wykres GUI
         if retrieved_data and "dataSeries" in retrieved_data:
@@ -164,25 +156,9 @@ class frogGUI(BaseGUI):
 
         return acquired_data, retrieved_data
 
-    def frog_read_measurement(self, feedback_device):
-        '''
-        loop = asyncio.get_event_loop()
-        acquired_data, retrieved_data = loop.run_until_complete(
-            self.feedback_device.get_frog_data()
-        )
-        '''
-        acquired_data, retrieved_data = asyncio.run(
-            self.frog_dev.get_frog_data()
-        )
-
-        if retrieved_data and "dataSeries" in acquired_data:
-            spectrum = retrieved_data["dataSeries"].get("retrievedSpectrum", {})
-            phase = retrieved_data["dataSeries"].get("SpectralPhase", {})
-            x = spectrum.get("xValues", [])
-            y = spectrum.get("yValues", [])
-            phase_y = phase.get("yValues", [])
-
-        return x, y, phase_y
+    def frog_read_measurement(self, feedback_device=None):
+        self.read_frog(update_plot=False)
+        return self.frog_xdata, self.frog_ydata, self.frog_phase_ydata
 
     def read_frog_background(self):
         '''działa w WĄTKU, nie blokuje Tkintera'''
@@ -301,66 +277,119 @@ class frogGUI(BaseGUI):
 
     def objective_gdd_tod_fod(self, gdd, tod, fod, c_lambda, filter_width):
         '''
-                Calculates fitness of a pulse with given GDD value
-                :return:
-                '''
-
+        Calculates fitness of a pulse with given GDD, TOD, FOD values at 1550 nm
+        '''
         gdd = scale_0_1_to_limit(gdd, float(self.min_gdd_entry.get()), float(self.max_gdd_entry.get()))
         tod = scale_0_1_to_limit(tod, float(self.min_tod_entry.get()), float(self.max_tod_entry.get()))
         fod = scale_0_1_to_limit(fod, float(self.min_fod_entry.get()), float(self.max_fod_entry.get()))
-        c_lambda = scale_0_1_to_limit(c_lambda, float(self.min_central_lambda_entry.get()),
-                                      float(self.max_central_lambda_entry.get()))
-        filter_width = scale_0_1_to_limit(filter_width, float(self.min_filter_width_entry.get()),
-                                          float(self.max_filter_width_entry.get()))
+        c_lambda = scale_0_1_to_limit(
+            c_lambda, float(self.min_central_lambda_entry.get()), float(self.max_central_lambda_entry.get())
+        )
+        filter_width = scale_0_1_to_limit(
+            filter_width, float(self.min_filter_width_entry.get()), float(self.max_filter_width_entry.get())
+        )
 
         start_time = time.perf_counter()
         r = self.set_gdd_tod_fod(gdd, tod, fod, c_lambda, filter_width, update_plot=False)
-        end_time = time.perf_counter()
-        elapsed = end_time - start_time
+        elapsed = time.perf_counter() - start_time
         print(f'Czas wykonania shaper: {elapsed:.6f} s, wiadomość {r}')
-        # time.sleep(int(self.sample_delay.get())/1000)
+
+        # Pobranie świeżego pomiaru z FROG-a (odwraca oś X i zapisuje self.frog_retrieved_data)
         self.read_frog(update_plot=False)
 
-        # zaktualizuj wykresy
-        self.show_waveshaper_plot()
-        self.show_feedback_plot()
+        # Bezpieczne odświeżenie wykresów z wątku pobocznego
+        self.root.after(0, self.show_waveshaper_plot)
+        self.root.after(0, self.show_feedback_plot)
 
         wavelengths = np.array(self.frog_xdata, dtype=float)
         intensities = np.array(self.frog_ydata, dtype=float)
 
         xmin = float(self.lambda_min_entry.get())
         xmax = float(self.lambda_max_entry.get())
-
         mask = (wavelengths >= xmin) & (wavelengths <= xmax)
 
         w_filtered = wavelengths[mask]
         i_filtered = intensities[mask]
 
-        lin = i_filtered
-        lin[lin <= 0] = 1e-20
-        intensities_db = 10 * np.log10(lin / 1000)
+        if len(w_filtered) < 5 or np.max(i_filtered) <= 0:
+            return self._return_penalty_fitness(gdd, tod, fod, c_lambda, filter_width, "Brak sygnału FROG")
 
-        lambda_min = 782.5  # nm
-        lambda_max = 837.5  # nm
+        # 1. SZEROKOŚĆ WIDMA (3 dB)
+        width = data.compute_width_db(w_filtered, i_filtered, level=3)
+        if width < 5:
+            return self._return_penalty_fitness(gdd, tod, fod, c_lambda, filter_width, f"Za wąskie widmo ({width:.2f} nm)")
 
-        if width < 5:  # 10:
-            fitness = 1000000
+        # 2. PŁASKOŚĆ WIDMA — dynamiczny środek i szerokość okna na podstawie mierzonego widma
+        # Środek okna: środek ciężkości rdzenia widma (I > 0.5 * max) – stabilniejszy niż sam np.argmax przy płaskim szczycie
+        fwhm_mask = i_filtered >= (0.5 * np.max(i_filtered))
+        if np.any(fwhm_mask):
+            peak_wavelength = float(np.average(w_filtered[fwhm_mask], weights=i_filtered[fwhm_mask]))
+        else:
+            peak_wavelength = float(w_filtered[np.argmax(i_filtered)])
+
+        # Szerokość połówkowa okna: 40% zmierzonej szerokości widma (czyli 80% FWHM wokół środka),
+        # przycięta tak, aby nie wyjść poza granice w_filtered
+        max_available_half_range = min(peak_wavelength - w_filtered[0], w_filtered[-1] - peak_wavelength)
+        half_range = float(np.clip(0.4 * width, 2.0, max(2.0, max_available_half_range)))
+
+        flatness = data.compute_spectral_flatness_in_range(w_filtered, i_filtered, peak_wavelength, half_range)
+
+        # 3. WYŻSZE RZĘDY FAZY Z FITU FROG-A (TOD = Order3, FOD = Order4; GDD = Order2 pomijamy!)
+        fit_info = getattr(self, "frog_retrieved_data", {})
+        order3 = fit_info.get("spectralPhaseFitOrder3", np.nan)
+        order4 = fit_info.get("spectralPhaseFitOrder4", np.nan)
+
+        # Awaryjny fit wielomianem 4. stopnia na masce I > 0.1 * max, gdyby FROG zwrócił NaN
+        if np.isnan(order3) or np.isnan(order4):
+            phases = np.array(getattr(self, "frog_phase_ydata", []), dtype=float)
+            valid_mask = (intensities > 0.1 * np.max(intensities)) & mask
+            if len(phases) == len(wavelengths) and np.sum(valid_mask) >= 6:
+                c_light = 299792.458  # nm / ps
+                omega = 2.0 * np.pi * c_light / wavelengths[valid_mask]
+                omega_0 = np.mean(omega)
+                phi_unwrapped = np.unwrap(phases[valid_mask])
+                # Dopasowanie wielomianu 4. stopnia: p[0]*dw^4 + p[1]*dw^3 + p[2]*dw^2 + ...
+                poly_coeffs = np.polyfit(omega - omega_0, phi_unwrapped, deg=4)
+                # Przeliczenie z ps^3 / ps^4 na fs^3 / fs^4 (1 ps = 1000 fs)
+                order4 = abs(poly_coeffs[0] * 24.0 * 1e12)
+                order3 = abs(poly_coeffs[1] * 6.0 * 1e9)
+            else:
+                return self._return_penalty_fitness(gdd, tod, fod, c_lambda, filter_width, "NaN w ficie fazy FROG")
+
+        # Normalizacja składników funkcji kosztu (wszystkie bezwymiarowe, cel: minimalizacja -> 0)
+        target_width = 40.0   # nm (wartość odniesienia dla szerokości)
+        tod_scale = 1e4       # fs^3 (wartość odniesienia dla Order3)
+        fod_scale = 1e6       # fs^4 (wartość odniesienia dla Order4)
+
+        cost_width = target_width / (width + 1e-3)
+        cost_flatness = flatness
+        cost_phase = (abs(order3) / tod_scale) ** 2 + (abs(order4) / fod_scale) ** 2
+
+        w_width = float(self.inside_weight_entry.get())
+        w_phase = float(self.outside_weight_entry.get())
+        w_flat = 1.0
+
+        fitness = (w_width * cost_width) + (w_flat * cost_flatness) + (w_phase * cost_phase)
+
+        self._update_fitness_indicators(
+            gdd, tod, fod, c_lambda, filter_width, fitness,
+            f"Width: {width:.2f} nm, Flat: {flatness:.3f}, TOD_fit: {order3:.1f}, FOD_fit: {order4:.1f} -> Fit: {fitness:.4f}"
+        )
+        return float(fitness)
+
+    def _return_penalty_fitness(self, gdd, tod, fod, c_lambda, filter_width, reason):
+        fitness = 1e6
+        self._update_fitness_indicators(gdd, tod, fod, c_lambda, filter_width, fitness, f"Penalty ({reason})")
+        return float(fitness)
+
+    def _update_fitness_indicators(self, gdd, tod, fod, c_lambda, filter_width, fitness, log_msg):
+        def _ui_update():
             self.gdd_indicator.config(
-                text=f'Current GDD: {gdd: .2f}, TOD: {tod: .2f}, FOD: {fod: .2f}, Lambda: {c_lambda: .2f}, Bandwidth: {filter_width: .2f}')
-            self.fitness_indicator.config(text=f'Current fitness: {fitness: .2f}')
-            return fitness
-
-        flatness = data.compute_spectral_flatness_in_range(w_filtered, i_filtered, 805, 15)
-        inside_weight = float(self.inside_weight_entry.get())
-        outside_weight = float(self.outside_weight_entry.get())
-
-        fitness = -1 * (((1 + flatness) ** 2) * (inside_weight * fulness - outside_weight * fulness_background))
-        self.gdd_indicator.config(
-            text=f'Current GDD: {gdd: .2f}, TOD: {tod: .2f}, FOD: {fod: .2f}, Lambda: {c_lambda: .2f}, Bandwidth: {filter_width: .2f}')
-        self.fitness_indicator.config(text=f'Current fitness: {fitness: .2f}')
-        self.talk(
-            f'Inside: {inside_weight * fulness: .4f} Outside: {outside_weight * fulness_background: .4f}, flatness: {flatness: .2f}')
-        return fitness
+                text=f'Current GDD: {gdd: .2f}, TOD: {tod: .2f}, FOD: {fod: .2f}, Lambda: {c_lambda: .2f}, Bandwidth: {filter_width: .2f}'
+            )
+            self.fitness_indicator.config(text=f'Current fitness: {fitness: .4f}')
+            self.talk(log_msg)
+        self.root.after(0, _ui_update)
 
     def show_best_feedback_plot(self):
         if not hasattr(self, "best_frog_xdata") or len(self.best_frog_xdata) == 0:
