@@ -388,7 +388,7 @@ class BaseGUI:
             # self.shaper_connect_button.configure(text="Shaper Connect", style="Black.TButton")
             self.talk("You disconnected from Waveshaper")
 
-    def set_gdd_tod_fod(self, gdd, tod, fod, central_lambda, filter_width=4, update_plot=True):
+    def set_gdd_tod_fod(self, gdd=0.75, tod=0.0, fod=0.0, central_lambda=1040, filter_width=5, update_plot=True):
 
         # self.phase_xdata, self.phase_ydata = parabolic_phase(self.shaper, float(self.central_lambda_entry.get()), gdd)
         # self.phase_xdata, self.phase_ydata = polynomial_phase(self.shaper, float(self.central_lambda_entry.get()), gdd, tod, fod)

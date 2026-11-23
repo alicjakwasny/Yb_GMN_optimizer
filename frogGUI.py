@@ -275,7 +275,7 @@ class frogGUI(BaseGUI):
         self.frog_continuous_button.after(0, lambda: self.frog_continuous_button.config(state="normal"))
         self.optimize_button.after(0, lambda: self.optimize_button.config(state="normal"))
 
-    def objective_gdd_tod_fod(self, gdd, tod, fod, c_lambda, filter_width):
+    def objective_gdd_tod_fod(self, gdd, tod, fod, c_lambda=1040, filter_width=5):
         '''
         Calculates fitness of a pulse with given GDD, TOD, FOD values at 1550 nm
         '''
@@ -290,7 +290,8 @@ class frogGUI(BaseGUI):
         )
 
         start_time = time.perf_counter()
-        r = self.set_gdd_tod_fod(gdd, tod, fod, c_lambda, filter_width, update_plot=False)
+        #r = self.set_gdd_tod_fod(gdd, tod, fod, c_lambda, filter_width, update_plot=False)
+        r = self.set_gdd_tod_fod(gdd, tod, fod, update_plot=False)
         elapsed = time.perf_counter() - start_time
         print(f'Czas wykonania shaper: {elapsed:.6f} s, wiadomość {r}')
 
@@ -357,9 +358,9 @@ class frogGUI(BaseGUI):
                 return self._return_penalty_fitness(gdd, tod, fod, c_lambda, filter_width, "NaN w ficie fazy FROG")
 
         # Normalizacja składników funkcji kosztu (wszystkie bezwymiarowe, cel: minimalizacja -> 0)
-        target_width = 40.0   # nm (wartość odniesienia dla szerokości)
+        target_width = 200.0   # nm (wartość odniesienia dla szerokości)
         tod_scale = 1e4       # fs^3 (wartość odniesienia dla Order3)
-        fod_scale = 1e6       # fs^4 (wartość odniesienia dla Order4)
+        fod_scale = 1e7       # fs^4 (wartość odniesienia dla Order4)
 
         cost_width = target_width / (width + 1e-3)
         cost_flatness = flatness
@@ -370,19 +371,26 @@ class frogGUI(BaseGUI):
         w_flat = 1.0
 
         fitness = (w_width * cost_width) + (w_flat * cost_flatness) + (w_phase * cost_phase)
+        self._update_fitness_indicators(
+            gdd, tod, fod, fitness=fitness,
+            log_msg=f"Width: {width:.2f} nm, Flat: {flatness:.3f}, TOD_fit: {order3:.1f}, FOD_fit: {order4:.1f} -> Fit: {fitness:.4f}"
+        )
 
+
+        '''
         self._update_fitness_indicators(
             gdd, tod, fod, c_lambda, filter_width, fitness,
             f"Width: {width:.2f} nm, Flat: {flatness:.3f}, TOD_fit: {order3:.1f}, FOD_fit: {order4:.1f} -> Fit: {fitness:.4f}"
         )
+        '''
         return float(fitness)
 
-    def _return_penalty_fitness(self, gdd, tod, fod, c_lambda, filter_width, reason):
+    def _return_penalty_fitness(self, gdd, tod, fod, c_lambda=1040, filter_width=5, reason=''):
         fitness = 1e6
         self._update_fitness_indicators(gdd, tod, fod, c_lambda, filter_width, fitness, f"Penalty ({reason})")
         return float(fitness)
 
-    def _update_fitness_indicators(self, gdd, tod, fod, c_lambda, filter_width, fitness, log_msg):
+    def _update_fitness_indicators(self, gdd, tod, fod, c_lambda=1040, filter_width=5, fitness=1e6, log_msg=''):
         def _ui_update():
             self.gdd_indicator.config(
                 text=f'Current GDD: {gdd: .2f}, TOD: {tod: .2f}, FOD: {fod: .2f}, Lambda: {c_lambda: .2f}, Bandwidth: {filter_width: .2f}'
