@@ -12,7 +12,6 @@ import ctypes
 
 class frogGUI(BaseGUI):
     def setup_feedback_plot(self):
-        #self.frog_figure = Figure(figsize=(5, 4), dpi=100, tight_layout = True)
         self.frog_figure = Figure(figsize=self.get_figure_size(), dpi=100, tight_layout=True)
         self.frog_ax = self.frog_figure.add_subplot(111)
         self.frog_ax.set_title("FROG spectrum")
@@ -25,14 +24,14 @@ class frogGUI(BaseGUI):
         self.frog_ax2.set_ylabel("Spectral phase")
         self.frog_line2, = self.frog_ax2.plot([], [], color="hotpink")
         self.frog_ax2.grid(True, color="hotpink", alpha=0.3)
-        self.treshold_line = self.frog_ax2.axhline(
+        self.treshold_line = self.frog_ax.axhline(
             y=np.nan, linestyle="--", color="red", alpha=0.8
         )
-        self.treshold_text = self.frog_ax2.text(
-            0.95, 0, "15dB: ",
+        self.treshold_text = self.frog_ax.text(
+            0.95, 0, "3dB: ",
             color="red",
             ha="right", va="bottom",
-            transform=self.frog_ax2.get_yaxis_transform()
+            transform=self.frog_ax.get_yaxis_transform()
         )
 
         self.frog_canvas = FigureCanvasTkAgg(self.frog_figure, master=self.left_frame)
@@ -40,10 +39,9 @@ class frogGUI(BaseGUI):
         self.frog_canvas.get_tk_widget().grid(row=0, column=0)
 
     def setup_best_feedback_plot(self):
-        #self.best_frog_figure = Figure(figsize=(5, 4), dpi=100, tight_layout=True)
         self.best_frog_figure = Figure(figsize=self.get_figure_size(), dpi=100, tight_layout=True)
         self.best_frog_ax = self.best_frog_figure.add_subplot(111)
-        self.best_frog_ax.set_title("Frog")
+        self.best_frog_ax.set_title("Best FROG Spectrum")
         self.best_frog_ax.set_xlabel("Wavelength (nm)")
         self.best_frog_ax.set_ylabel(r"Intensity")
         self.best_frog_line, = self.best_frog_ax.plot([], [], color="darkviolet")
@@ -53,6 +51,16 @@ class frogGUI(BaseGUI):
         self.best_frog_ax2.set_ylabel("Phase [rad]")
         self.best_frog_line2, = self.best_frog_ax2.plot([], [], color="hotpink")
         self.best_frog_ax2.grid(True, color="hotpink", alpha=0.3)
+
+        self.best_treshold_line = self.best_frog_ax.axhline(
+            y=np.nan, linestyle="--", color="red", alpha=0.8
+        )
+        self.best_treshold_text = self.best_frog_ax.text(
+            0.95, 0, "3 dB: ",
+            color="red",
+            ha="right", va="bottom",
+            transform=self.best_frog_ax.get_yaxis_transform()
+        )
 
         self.best_frog_canvas = FigureCanvasTkAgg(self.best_frog_figure, master=self.left_frame)
         self.best_frog_canvas.draw()
@@ -275,23 +283,41 @@ class frogGUI(BaseGUI):
         self.frog_continuous_button.after(0, lambda: self.frog_continuous_button.config(state="normal"))
         self.optimize_button.after(0, lambda: self.optimize_button.config(state="normal"))
 
-    def objective_gdd_tod_fod(self, gdd, tod, fod, c_lambda=1040, filter_width=5):
+    def objective_gdd_tod_fod(self, gdd, tod, fod, c_lambda=None, filter_width=None):
         '''
-        Calculates fitness of a pulse with given GDD, TOD, FOD values at 1550 nm
+        Calculates fitness of a pulse with given GDD, TOD, FOD (and optionally c_lambda and filter_width)
         '''
+
+        gdd = float(np.clip(gdd, 0.0, 1.0))
+        tod = float(np.clip(tod, 0.0, 1.0))
+        fod = float(np.clip(fod, 0.0, 1.0))
+
         gdd = scale_0_1_to_limit(gdd, float(self.min_gdd_entry.get()), float(self.max_gdd_entry.get()))
         tod = scale_0_1_to_limit(tod, float(self.min_tod_entry.get()), float(self.max_tod_entry.get()))
         fod = scale_0_1_to_limit(fod, float(self.min_fod_entry.get()), float(self.max_fod_entry.get()))
-        c_lambda = scale_0_1_to_limit(
-            c_lambda, float(self.min_central_lambda_entry.get()), float(self.max_central_lambda_entry.get())
-        )
-        filter_width = scale_0_1_to_limit(
-            filter_width, float(self.min_filter_width_entry.get()), float(self.max_filter_width_entry.get())
-        )
+
+        if c_lambda is not None:
+            c_lambda = float(np.clip(c_lambda, 0.0, 1.0))
+            c_lambda = scale_0_1_to_limit(
+                c_lambda,
+                float(self.min_central_lambda_entry.get()),
+                float(self.max_central_lambda_entry.get())
+            )
+        else:
+            c_lambda = 1030.0
+
+        if filter_width is not None:
+            filter_width = float(np.clip(filter_width, 0.0, 1.0))
+            filter_width = scale_0_1_to_limit(
+                filter_width,
+                float(self.min_filter_width_entry.get()),
+                float(self.max_filter_width_entry.get())
+            )
+        else:
+            filter_width = 5.0
 
         start_time = time.perf_counter()
-        #r = self.set_gdd_tod_fod(gdd, tod, fod, c_lambda, filter_width, update_plot=False)
-        r = self.set_gdd_tod_fod(gdd, tod, fod, update_plot=False)
+        r = self.set_gdd_tod_fod(gdd, tod, fod, c_lambda, filter_width, update_plot=False)
         elapsed = time.perf_counter() - start_time
         print(f'Czas wykonania shaper: {elapsed:.6f} s, wiadomość {r}')
 
@@ -372,25 +398,25 @@ class frogGUI(BaseGUI):
 
         fitness = (w_width * cost_width) + (w_flat * cost_flatness) + (w_phase * cost_phase)
         self._update_fitness_indicators(
-            gdd, tod, fod, fitness=fitness,
-            log_msg=f"Width: {width:.2f} nm, Flat: {flatness:.3f}, TOD_fit: {order3:.1f}, FOD_fit: {order4:.1f} -> Fit: {fitness:.4f}"
+            gdd,
+            tod,
+            fod,
+            c_lambda=c_lambda,
+            filter_width=filter_width,
+            fitness=fitness,
+            log_msg=(
+                f"Peak: {peak_wavelength:.1f} nm, Width: {width:.2f} nm, "
+                f"Flat: {flatness:.3f}, TOD_fit: {order3:.1f}, FOD_fit: {order4:.1f} -> Fit: {fitness:.4f}"
+            ),
         )
-
-
-        '''
-        self._update_fitness_indicators(
-            gdd, tod, fod, c_lambda, filter_width, fitness,
-            f"Width: {width:.2f} nm, Flat: {flatness:.3f}, TOD_fit: {order3:.1f}, FOD_fit: {order4:.1f} -> Fit: {fitness:.4f}"
-        )
-        '''
         return float(fitness)
 
-    def _return_penalty_fitness(self, gdd, tod, fod, c_lambda=1040, filter_width=5, reason=''):
+    def _return_penalty_fitness(self, gdd, tod, fod, c_lambda=1030.0, filter_width=5.0, reason=''):
         fitness = 1e6
         self._update_fitness_indicators(gdd, tod, fod, c_lambda, filter_width, fitness, f"Penalty ({reason})")
         return float(fitness)
 
-    def _update_fitness_indicators(self, gdd, tod, fod, c_lambda=1040, filter_width=5, fitness=1e6, log_msg=''):
+    def _update_fitness_indicators(self, gdd, tod, fod, c_lambda=1030.0, filter_width=5.0, fitness=1e6, log_msg=''):
         def _ui_update():
             self.gdd_indicator.config(
                 text=f'Current GDD: {gdd: .2f}, TOD: {tod: .2f}, FOD: {fod: .2f}, Lambda: {c_lambda: .2f}, Bandwidth: {filter_width: .2f}'
@@ -440,30 +466,28 @@ class frogGUI(BaseGUI):
             self.best_treshold_text.set_visible(False)
             self.best_frog_ax.get_yaxis().set_visible(False)
 
-        # 2. Prawa oś (ax2): Faza widmowa tylko tam, gdzie intensywność > 0.1 * max
+        # 2. Prawa oś (best_frog_ax2): Faza widmowa najlepszego impulsu (I > 0.1 * max)
         has_phase = (
-                hasattr(self, "frog_phase_ydata")
-                and len(self.frog_phase_ydata) == len(wavelengths)
+                hasattr(self, "best_frog_phase_ydata")
+                and len(self.best_frog_phase_ydata) == len(wavelengths)
         )
         if self.show_phase.get() and has_phase and len(intensities) > 0:
-            phases = np.array(self.frog_phase_ydata, dtype=float)
-
-            # Próg 0.1 względem maksimum widma (jeśli widmo jest znormalizowane do 1, to dokładnie 0.1)
+            phases = np.array(self.best_frog_phase_ydata, dtype=float)
             intensity_threshold = 0.1 * np.max(intensities)
             phases_masked = np.where(intensities > intensity_threshold, phases, np.nan)
 
-            self.frog_line2.set_xdata(wavelengths)
-            self.frog_line2.set_ydata(phases_masked)
-            self.frog_line2.set_visible(True)
-            self.frog_ax2.set_xlim(xmin, xmax)
+            self.best_frog_line2.set_xdata(wavelengths)
+            self.best_frog_line2.set_ydata(phases_masked)
+            self.best_frog_line2.set_visible(True)
+            self.best_frog_ax2.set_xlim(xmin, xmax)
 
             p_filtered = phases_masked[mask]
             if np.any(~np.isnan(p_filtered)):
-                self.frog_ax2.set_ylim(np.nanmin(p_filtered) - 0.5, np.nanmax(p_filtered) + 0.5)
-            self.frog_ax2.get_yaxis().set_visible(True)
+                self.best_frog_ax2.set_ylim(np.nanmin(p_filtered) - 0.5, np.nanmax(p_filtered) + 0.5)
+            self.best_frog_ax2.get_yaxis().set_visible(True)
         else:
-            self.frog_line2.set_visible(False)
-            self.frog_ax2.get_yaxis().set_visible(False)
+            self.best_frog_line2.set_visible(False)
+            self.best_frog_ax2.get_yaxis().set_visible(False)
 
         self.best_frog_canvas.draw()
 

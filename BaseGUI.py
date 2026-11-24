@@ -10,7 +10,6 @@ import os, json
 from pathlib import Path
 from datetime import datetime
 
-
 def _json_converter(o):
     if isinstance(o, np.integer):
         return int(o)
@@ -388,7 +387,7 @@ class BaseGUI:
             # self.shaper_connect_button.configure(text="Shaper Connect", style="Black.TButton")
             self.talk("You disconnected from Waveshaper")
 
-    def set_gdd_tod_fod(self, gdd=0.75, tod=0.0, fod=0.0, central_lambda=1040, filter_width=5, update_plot=True):
+    def set_gdd_tod_fod(self, gdd=0.75, tod=0.0, fod=0.0, central_lambda=1030.0, filter_width=5, update_plot=True):
 
         # self.phase_xdata, self.phase_ydata = parabolic_phase(self.shaper, float(self.central_lambda_entry.get()), gdd)
         # self.phase_xdata, self.phase_ydata = polynomial_phase(self.shaper, float(self.central_lambda_entry.get()), gdd, tod, fod)
@@ -489,7 +488,6 @@ class BaseGUI:
         finally:
             self.prepare_after_optimization()
 
-
     def objective_gdd_tod_fod(self, gdd, tod, fod, c_lambda, filter_width):
         '''
         Calculates fitness of a pulse with given GDD value
@@ -515,200 +513,128 @@ class BaseGUI:
     def formulate_data_for_saving(self, best_gdd, best_tod, best_fod, best_lambda_c, best_filter_width, best_fitness):
         raise NotImplementedError
 
-    def crow_search(self):
-        '''
-        Crow search algorithm
-        :param pd: problem dimension -> number of stripes
-        :param N: Flock (population) size
-        :param AP: Awareness probability
-        :param fl: flight length
-        :param iter: max number of iterations
-        :param lb: lower bound
-        :param ub: upper bound
-        :return: fitness list, best mask
-        '''
+    def _decode_position(self, pos):
+        """Przelicza wektor wrony z [0, 1] na fizyczne jednostki (obsługuje tryb 3D i 5D)."""
+        p = np.clip(pos, 0.0, 1.0)
+        gdd = scale_0_1_to_limit(p[0], float(self.min_gdd_entry.get()), float(self.max_gdd_entry.get()))
+        tod = scale_0_1_to_limit(p[1], float(self.min_tod_entry.get()), float(self.max_tod_entry.get()))
+        fod = scale_0_1_to_limit(p[2], float(self.min_fod_entry.get()), float(self.max_fod_entry.get()))
 
-        # x - crows positions
-        # mem - memory storing the hiding-food locations
-        # ft - fitness array, stores the fitness of the hiding-food locations
-        # ft_mem - memory storing fitness values of the positions in memory
-        iter = int(self.iterations_entry.get())
+        if len(p) >= 5 and getattr(self, "optimize_filter_var", None) and self.optimize_filter_var.get():
+            c_lambda = scale_0_1_to_limit(
+                p[3], float(self.min_central_lambda_entry.get()), float(self.max_central_lambda_entry.get())
+            )
+            filter_width = scale_0_1_to_limit(
+                p[4], float(self.min_filter_width_entry.get()), float(self.max_filter_width_entry.get())
+            )
+        else:
+            c_lambda = 1030.0
+            filter_width = 5.0
+
+        return gdd, tod, fod, c_lambda, filter_width
+
+    def crow_search(self):
+        iter_count = int(self.iterations_entry.get())
         pop_size = int(self.population_entry.get())
-        prob_dim = 5  # because we have only GDD, TOD and FOD and lambda and filter bandwidth
-        lb = 0
-        ub = 1
+        optimize_filter = bool(getattr(self, "optimize_filter_var", None) and self.optimize_filter_var.get())
+        prob_dim = 5 if optimize_filter else 3
+
+        lb = 0.0
+        ub = 1.0
         AP = 0.3
         fl = 0.5
 
-        x = cs.init(pop_size, prob_dim, lb, ub)  # initial population
-        self.fitness_list = []  # fitness list
-        # ft = (objective(pulseCheck, scan_range, v, pd) for v in x)
+        x = cs.init(pop_size, prob_dim, lb, ub)
+        self.fitness_list = []
         ft = []
+
         for idx, position in enumerate(x):
-            # warunek zatrzymania
             if self.stop_event.is_set():
-                self.talk(f'Optimization stopped')
-                ft = []
-                x = []
+                self.root.after(0, lambda: self.talk('Optimization stopped'))
                 return
 
-            self.iter_indicator.config(text=f'Iteration: 0')
-            self.agent_indicator.config(text=f'Crow: {idx}')
-            fitness = self.objective_gdd_tod_fod(position[0], position[1], position[2], position[3],
-                                                 position[4])
-            ft.append(fitness)  # wypełnienie fitness
+            position = np.clip(position, lb, ub)
+            x[idx] = position
 
-            self.gdd_indicator.config(
-                text=f'Current GDD: {position[0]: .2f}, TOD: {position[1]: .2f}, FOD: {position[2]: .2f},'
-                     f'Lambda: {position[3]: .2f}, Bandwidth: {position[4]: .2f}')
-            self.fitness_indicator.config(text=f'Current fitness: {fitness: .2f}')
+            self.root.after(0, lambda: self.iter_indicator.config(text='Iteration: 0'))
+            self.root.after(0, lambda i=idx: self.agent_indicator.config(text=f'Crow: {i}'))
 
+            if prob_dim == 5:
+                fitness = self.objective_gdd_tod_fod(position[0], position[1], position[2], position[3], position[4])
+            else:
+                fitness = self.objective_gdd_tod_fod(position[0], position[1], position[2])
+            ft.append(fitness)
 
-        # initialize the memory
-        mem = np.copy(x)  # first hiding-food locations are
-        fit_mem = np.copy(ft)  # first fitness memory
+        mem = np.copy(x)
+        fit_mem = np.array(ft, dtype=float)
 
-        min_fit = np.min(fit_mem)
-        # print(f'The best fitness, iteration {i}: {min_fit}')
-        min_fit_idx = np.argmin(fit_mem)
+        min_fit = float(np.min(fit_mem))
+        min_fit_idx = int(np.argmin(fit_mem))
         self.fitness_list.append(min_fit)
         self.root.after(0, self.show_fitness_plot)
 
-        gdd = scale_0_1_to_limit(mem[min_fit_idx][0], float(self.min_gdd_entry.get()), float(self.max_gdd_entry.get()))
-        tod = scale_0_1_to_limit(mem[min_fit_idx][1], float(self.min_tod_entry.get()), float(self.max_tod_entry.get()))
-        fod = scale_0_1_to_limit(mem[min_fit_idx][2], float(self.min_fod_entry.get()), float(self.max_fod_entry.get()))
-        central_lambda = scale_0_1_to_limit(mem[min_fit_idx][3], float(self.min_central_lambda_entry.get()),
-                                            float(self.max_central_lambda_entry.get()))
-        filter_width = scale_0_1_to_limit(mem[min_fit_idx][4], float(self.min_filter_width_entry.get()),
-                                          float(self.max_filter_width_entry.get()))
-
+        gdd, tod, fod, central_lambda, filter_width = self._decode_position(mem[min_fit_idx])
         self.update_best_feedback_plot(gdd, tod, fod, central_lambda, filter_width)
 
-        for i in range(iter):
-            # num = np.random.randint(low=0, high=N, size = N) #Generation of random candidate crows for following (chasing)
-            # xnew = np.zeros((N, pd))
-
-            # warunek zatrzymania
+        for i in range(iter_count):
             if self.stop_event.is_set():
-                self.talk(f'Optimization stopped')
-                ft = []
-                x = []
+                self.root.after(0, lambda: self.talk('Optimization stopped'))
                 return
 
             best_fitness = self.fitness_list[-1]
 
-            # for crow_idx in range(x.shape[0]-1):
+            # 1. Aktualizacja pozycji wron z twardym przycięciem do [0, 1]
             for crow_i in range(pop_size):
-                # Pick a crow to follow
-                crow_j = np.random.randint(low=0,
-                                           high=pop_size)  # Generation of random candidate crows for following (chasing)
-                rand_num = np.random.rand()  # Generate a random number between 0 and 1 for awareness probability
+                crow_j = np.random.randint(low=0, high=pop_size)
+                rand_num = np.random.rand()
                 if rand_num > AP:
-                    # crow i chases crow j
-                    # xnew[crow_idx, :] = x[crow_idx, :] + fl*rand_num*(mem[num[crow_idx], :]-x[crow_idx, :]) # Generation of a new position for crow i (state 1)
-                    # xnew[crow_i, :] = x[crow_i, :] + fl * rand_num * (mem[num[crow_i], :] - x[crow_i, :])  # Generation of a new position for crow i (state 1)
-                    x[crow_i, :] = x[crow_i, :] + fl * rand_num * (
-                            mem[crow_j, :] - x[crow_i, :])  # Generation of a new position for crow i (state 1)
-                    # tu powinno być chyba sprawdzenie czy maska jest w bounds?
+                    x[crow_i, :] = x[crow_i, :] + fl * rand_num * (mem[crow_j, :] - x[crow_i, :])
                 else:
-                    # crow j is aware, goes to random position
-                    x[crow_i, :] = np.random.randint(lb, ub, prob_dim)
+                    # POPRAWKA: uniform zamiast randint(0, 1), które dawało same zera!
+                    x[crow_i, :] = np.random.uniform(lb, ub, prob_dim)
 
-            # xn = xnew
-            # ft = (objective(pulseCheck, scan_range, v, pd) for v in xn)  # Function for fitness evaluation of new solutions
-            ft = []  # fitness values placeholder
+                # Twarde przycięcie do granic [0, 1] PRZED wysłaniem na Waveshaper
+                x[crow_i, :] = np.clip(x[crow_i, :], lb, ub)
+
+            # 2. Ocena nowych pozycji i aktualizacja pamięci
+            ft = []
             for idx, position in enumerate(x):
-                # warunek zatrzymania
                 if self.stop_event.is_set():
-                    self.talk(f'Optimization stopped')
-                    ft = []
-                    x = []
+                    self.root.after(0, lambda: self.talk('Optimization stopped'))
                     return
 
-                # ft.append(objective(q, waveshaper, position, pd)) #check the fitness
-                # self.talk(f'Iteration {i} crow {idx}')
-                self.iter_indicator.config(text=f'Iteration: {i + 1}')  # +1 bo iteracją 0 są losowe maski
-                self.agent_indicator.config(text=f'Crow: {idx}')
+                self.root.after(0, lambda it=i + 1: self.iter_indicator.config(text=f'Iteration: {it}'))
+                self.root.after(0, lambda c=idx: self.agent_indicator.config(text=f'Crow: {c}'))
 
-                fitness = self.objective_gdd_tod_fod(position[0], position[1], position[2], position[3], position[4])
+                if prob_dim == 5:
+                    fitness = self.objective_gdd_tod_fod(position[0], position[1], position[2], position[3], position[4])
+                else:
+                    fitness = self.objective_gdd_tod_fod(position[0], position[1], position[2])
                 ft.append(fitness)
 
-                self.gdd_indicator.config(
-                    text=f'Current GDD: {position[0]: .2f}, TOD: {position[1]: .2f}, FOD: {position[2]: .2f},'
-                         f'Lambda: {position[3]: .2f}, Bandwidth: {position[4]: .2f}')
-                self.fitness_indicator.config(text=f'Current fitness: {fitness: .2f}')
+                if fitness < fit_mem[idx]:
+                    mem[idx, :] = position
+                    fit_mem[idx] = fitness
 
-
-            for crow in range(pop_size):  # Update position and memory
-                if np.all(x[crow, :] >= lb) and np.all(x[crow, :] <= ub):  # Check if within bounds
-                    # x[j, :] = xnew[j,:] #xnew[i, :]    # Update position
-                    new_place = ft[crow]
-                    best_spot = fit_mem[crow]
-                    # if ft[crow] < fit_mem[crow]:
-                    if new_place < best_spot:
-                        mem[crow, :] = x[crow, :]
-                        fit_mem[crow] = ft[crow]
-                else:
-                    print(f'not within bounds')
-
-            min_fit = np.min(fit_mem)
-            min_fit_idx = np.argmin(fit_mem)
+            min_fit = float(np.min(fit_mem))
+            min_fit_idx = int(np.argmin(fit_mem))
             self.fitness_list.append(min_fit)
             self.root.after(0, self.show_fitness_plot)
 
             if min_fit < best_fitness:
-                gdd = scale_0_1_to_limit(mem[min_fit_idx][0], float(self.min_gdd_entry.get()),
-                                         float(self.max_gdd_entry.get()))
-                tod = scale_0_1_to_limit(mem[min_fit_idx][1], float(self.min_tod_entry.get()),
-                                         float(self.max_tod_entry.get()))
-                fod = scale_0_1_to_limit(mem[min_fit_idx][2], float(self.min_fod_entry.get()),
-                                         float(self.max_fod_entry.get()))
-                lambda_c = scale_0_1_to_limit(mem[min_fit_idx][3], float(self.min_central_lambda_entry.get()),
-                                              float(self.max_central_lambda_entry.get()))
-                filter_width = scale_0_1_to_limit(mem[min_fit_idx][4], float(self.min_filter_width_entry.get()),
-                                                  float(self.max_filter_width_entry.get()))
-
+                gdd, tod, fod, lambda_c, filter_width = self._decode_position(mem[min_fit_idx])
                 self.update_best_feedback_plot(gdd, tod, fod, lambda_c, filter_width)
 
-        global_best = np.min(fit_mem)
-        print(f'The best fitness, overall: {global_best: .2f}')
+        global_best = float(np.min(fit_mem))
+        min_fit_idx = int(np.argmin(fit_mem))
+        best_gdd, best_tod, best_fod, best_lambda_c, best_filter_width = self._decode_position(mem[min_fit_idx])
 
-        # g_best = mem[ngbest[0], :]  # global best position (mask)
-        min_fit_idx = np.argmin(fit_mem)
-        global_best_position = mem[min_fit_idx]
-        best_gdd = scale_0_1_to_limit(global_best_position[0], float(self.min_gdd_entry.get()),
-                                      float(self.max_gdd_entry.get()))
-        best_tod = scale_0_1_to_limit(global_best_position[1], float(self.min_tod_entry.get()),
-                                      float(self.max_tod_entry.get()))
-        best_fod = scale_0_1_to_limit(global_best_position[2], float(self.min_fod_entry.get()),
-                                      float(self.max_fod_entry.get()))
-        best_lambda_c = scale_0_1_to_limit(global_best_position[3], float(self.min_central_lambda_entry.get()),
-                                           float(self.max_central_lambda_entry.get()))
-        best_filter_width = scale_0_1_to_limit(global_best_position[4], float(self.min_filter_width_entry.get()),
-                                               float(self.max_filter_width_entry.get()))
-        print(
-            f'Best GDD: {best_gdd}, Best TOD: {best_tod}, Best FOD: {best_fod}, Central lambda: {best_lambda_c}, Best filter width: {best_filter_width}')
-        self.talk(
-            f'The best fitness, overall: {global_best: .2f}, for GDD: {best_gdd}, TOD: {best_tod}, FOD: {best_fod},'
-            f' lambda: {best_lambda_c}, filter_width: {best_filter_width}')
-        # print(f'Fitness measured rn with the best mask: {objective(q, waveshaper, mem[min_fit_idx], pd)}')
-
-        fitness = self.objective_gdd_tod_fod(global_best_position[0], global_best_position[1], global_best_position[2],
-                                             global_best_position[3], global_best_position[4])
-        self.gdd_indicator.config(
-            text=f'Current GDD: {position[0]: .2f}, TOD: {position[1]: .2f}, FOD: {position[2]: .2f},'
-                 f'Lambda: {position[3]: .2f}, Bandwidth: {position[4]: .2f}')
-        self.fitness_indicator.config(text=f'Current fitness: {fitness: .2f}')
-
-        print(f'Fitness measured rn with the best mask so far: {fitness: .2f}')
-
-        self.update_best_feedback_plot(best_gdd, best_tod, best_fod, best_lambda_c, best_filter_width)
-
-        results = self.formulate_data_for_saving(best_gdd, best_tod, best_fod, best_lambda_c, best_filter_width,
-                                                 global_best)
-        self.save_data(results, self.feedback_device_name)
-
-        return [global_best_position, global_best, self.fitness_list]
+        msg = (
+            f'Best fitness: {global_best:.4f} | GDD: {best_gdd:.2f}, TOD: {best_tod:.2f}, '
+            f'FOD: {best_fod:.2f}, Lambda: {best_lambda_c:.2f}, Width: {best_filter_width:.2f}'
+        )
+        print(msg)
+        self.root.after(0, lambda: self.talk(msg))
 
     def save_data(self, data, device):
         # zapisuje dict z danymi do pliku json
