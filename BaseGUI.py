@@ -196,7 +196,7 @@ class BaseGUI:
 
         ttk.Label(control_frame, text="Attenuation filter bw [nm]:").grid(row=2, column=0, sticky='w')
         self.atten_filter_bandwidth_entry = ttk.Entry(control_frame, width=10)
-        self.atten_filter_bandwidth_entry.insert(0, 3)
+        self.atten_filter_bandwidth_entry.insert(0, 5)
         self.atten_filter_bandwidth_entry.grid(row=2, column=1)
 
         ttk.Label(control_frame, text="GDD:").grid(row=3, column=0, sticky='w')
@@ -513,6 +513,20 @@ class BaseGUI:
     def formulate_data_for_saving(self, best_gdd, best_tod, best_fod, best_lambda_c, best_filter_width, best_fitness):
         raise NotImplementedError
 
+    def _get_panel_filter_params(self):
+        """Pobiera aktualną długość fali i szeokość filtru wpisane w panelu Waveshaper."""
+        try:
+            c_lambda = float(self.phase_central_lambda_entry.get())
+        except (ValueError, AttributeError):
+            c_lambda = 1030.0
+
+        try:
+            filter_width = float(self.atten_filter_bandwidth_entry.get())
+        except (ValueError, AttributeError):
+            filter_width = 5.0
+
+        return c_lambda, filter_width
+
     def _decode_position(self, pos):
         """Przelicza wektor wrony z [0, 1] na fizyczne jednostki (obsługuje tryb 3D i 5D)."""
         p = np.clip(pos, 0.0, 1.0)
@@ -528,8 +542,7 @@ class BaseGUI:
                 p[4], float(self.min_filter_width_entry.get()), float(self.max_filter_width_entry.get())
             )
         else:
-            c_lambda = 1030.0
-            filter_width = 5.0
+            c_lambda, filter_width = self._get_panel_filter_params()
 
         return gdd, tod, fod, c_lambda, filter_width
 

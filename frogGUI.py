@@ -296,6 +296,8 @@ class frogGUI(BaseGUI):
         tod = scale_0_1_to_limit(tod, float(self.min_tod_entry.get()), float(self.max_tod_entry.get()))
         fod = scale_0_1_to_limit(fod, float(self.min_fod_entry.get()), float(self.max_fod_entry.get()))
 
+        panel_lambda, panel_width = self._get_panel_filter_params()
+
         if c_lambda is not None:
             c_lambda = float(np.clip(c_lambda, 0.0, 1.0))
             c_lambda = scale_0_1_to_limit(
@@ -304,7 +306,7 @@ class frogGUI(BaseGUI):
                 float(self.max_central_lambda_entry.get())
             )
         else:
-            c_lambda = 1030.0
+            c_lambda = panel_lambda
 
         if filter_width is not None:
             filter_width = float(np.clip(filter_width, 0.0, 1.0))
@@ -314,7 +316,7 @@ class frogGUI(BaseGUI):
                 float(self.max_filter_width_entry.get())
             )
         else:
-            filter_width = 5.0
+            filter_width = panel_width
 
         start_time = time.perf_counter()
         r = self.set_gdd_tod_fod(gdd, tod, fod, c_lambda, filter_width, update_plot=False)
