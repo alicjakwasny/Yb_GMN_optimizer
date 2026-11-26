@@ -289,23 +289,27 @@ class BaseGUI:
 
         ttk.Label(optim_frame, text="Min lambda:").grid(row=7, column=0, sticky='w')
         self.min_central_lambda_entry = ttk.Entry(optim_frame, width=10)
-        self.min_central_lambda_entry.insert(0, 1530)
+        self.min_central_lambda_entry.insert(0, 1030)
         self.min_central_lambda_entry.grid(row=7, column=1)
+        self.min_central_lambda_entry.config(state='disabled')  # teraz nie optymalizujemy central_lambda
 
         ttk.Label(optim_frame, text="Max lambda:").grid(row=7, column=2, sticky='w')
         self.max_central_lambda_entry = ttk.Entry(optim_frame, width=10)
-        self.max_central_lambda_entry.insert(0, 1590)
+        self.max_central_lambda_entry.insert(0, 1040)
         self.max_central_lambda_entry.grid(row=7, column=3)
+        self.max_central_lambda_entry.config(state='disabled')  # teraz nie optymalizujemy central_lambda
 
         ttk.Label(optim_frame, text="Min filter width:").grid(row=8, column=0, sticky='w')
         self.min_filter_width_entry = ttk.Entry(optim_frame, width=10)
-        self.min_filter_width_entry.insert(0, 6)
+        self.min_filter_width_entry.insert(0, 4)
         self.min_filter_width_entry.grid(row=8, column=1)
+        self.min_filter_width_entry.config(state='disabled')    # teraz nie optymalizujemy filter width
 
         ttk.Label(optim_frame, text="Max filter width:").grid(row=8, column=2, sticky='w')
         self.max_filter_width_entry = ttk.Entry(optim_frame, width=10)
-        self.max_filter_width_entry.insert(0, 10)
+        self.max_filter_width_entry.insert(0, 6)
         self.max_filter_width_entry.grid(row=8, column=3)
+        self.max_filter_width_entry.config(state='disabled')    # teraz nie optymalizujemy filter width
 
         ttk.Label(optim_frame, text="Inside factor:").grid(row=9, column=0, sticky='w')
         self.inside_weight_entry = ttk.Entry(optim_frame, width=10)
@@ -344,12 +348,14 @@ class BaseGUI:
     def setup_term_panel(self):
         self.terminal_frame = ttk.Frame(self.right_frame)
         self.terminal_frame.pack(fill='x', pady=5)
+        self.terminal_frame.grid_columnconfigure(0, weight=1)
+
         self.term_label = ttk.Label(self.terminal_frame,
                                     text="🤖: Hi! I will keep you updated!",
-                                    wraplength=250,  # pixels
+                                    wraplength=550,  # zwiększone z 250 px
                                     justify="left",
                                     anchor="w")
-        self.term_label.grid(row=0, column=0, columnspan=4)
+        self.term_label.grid(row=0, column=0, columnspan=4, sticky="ew")
 
     def talk(self, text):
         text_out = text

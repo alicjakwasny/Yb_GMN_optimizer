@@ -225,7 +225,7 @@ class frogGUI(BaseGUI):
 
             if len(w_filtered) > 1 and np.max(i_filtered) > 0:
                 # Obliczenie szerokości 3 dB
-                width = data.compute_width_db(w_filtered, i_filtered, level=3)
+                width = data.compute_width(w_filtered, i_filtered)
                 treshold_value = 0.5 * np.max(i_filtered)
 
                 self.treshold_line.set_xdata([xmin, xmax])
@@ -452,7 +452,7 @@ class frogGUI(BaseGUI):
             self.best_frog_ax.get_yaxis().set_visible(True)
 
             if len(w_filtered) > 1 and np.max(i_filtered) > 0:
-                width = data.compute_width_db(w_filtered, i_filtered, level=3)
+                width = data.compute_width(w_filtered, i_filtered)
                 treshold_value = 0.5 * np.max(i_filtered)
 
                 self.best_treshold_line.set_xdata([xmin, xmax])
