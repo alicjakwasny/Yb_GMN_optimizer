@@ -315,10 +315,13 @@ class BaseGUI:
         self.inside_weight_entry = ttk.Entry(optim_frame, width=10)
         self.inside_weight_entry.insert(0, 1)
         self.inside_weight_entry.grid(row=9, column=1)
+        self.inside_weight_entry.config(state='disabled')
+
         ttk.Label(optim_frame, text="Outside factor:").grid(row=9, column=2, sticky='w')
         self.outside_weight_entry = ttk.Entry(optim_frame, width=10)
         self.outside_weight_entry.insert(0, 1)
         self.outside_weight_entry.grid(row=9, column=3)
+        self.outside_weight_entry.config(state='disabled')
 
         self.optimize_button = ttk.Button(optim_frame, text="Start", command=self.start_optimization)
         self.optimize_button.grid(row=11, column=0, columnspan=1, pady=0)
