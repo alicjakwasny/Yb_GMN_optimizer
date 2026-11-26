@@ -139,6 +139,11 @@ class frogGUI(BaseGUI):
         self.frog_phase_ydata = getattr(self, "frog_phase_ydata", [])
         self.frog_retrieved_data = retrieved_data.get("retrievedData", {})
 
+        # nowe
+        acq_info = (acquired_data or {}).get("acquisition", {})
+        signal_pc = acq_info.get("signalPc", {}).get("value", None)
+        self.frog_signal_pc = float(signal_pc) if signal_pc is not None else None
+
         # Wyciągamy punkty widma i fazy do zmiennych używanych przez wykres GUI
         if retrieved_data and "dataSeries" in retrieved_data:
             ds = retrieved_data["dataSeries"]
@@ -397,6 +402,13 @@ class frogGUI(BaseGUI):
         w_width = float(self.inside_weight_entry.get())
         w_phase = float(self.outside_weight_entry.get())
         w_flat = 1.0
+
+        min_signal_pc = 2.0 # próg odcięcia w %
+        if self.frog_signal_pc is not None and self.frog_signal_pc < min_signal_pc:
+            return self._return_penalty_fitness(
+                gdd, tod, fod, c_lambda, filter_width,
+                reason=f"FROG signal too low ({self.frog_signal_pc: .2f}% < {min_signal_pc}%)"
+            )
 
         fitness = (w_width * cost_width) + (w_flat * cost_flatness) + (w_phase * cost_phase)
         self._update_fitness_indicators(
