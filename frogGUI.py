@@ -344,8 +344,8 @@ class frogGUI(BaseGUI):
             return self._return_penalty_fitness(gdd, tod, fod, c_lambda, filter_width, "Brak sygnału FROG")
 
         # 1. SZEROKOŚĆ WIDMA (3 dB)
-        width = data.compute_width_db(w_filtered, i_filtered, level=3)
-        if width < 5:
+        width = data.compute_width(w_filtered, i_filtered)
+        if width < 0:
             return self._return_penalty_fitness(gdd, tod, fod, c_lambda, filter_width, f"Za wąskie widmo ({width:.2f} nm)")
 
         # 2. PŁASKOŚĆ WIDMA — dynamiczny środek i szerokość okna na podstawie mierzonego widma
